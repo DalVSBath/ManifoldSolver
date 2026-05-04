@@ -1,0 +1,10 @@
+.claude
+plans
+.vs
+
+**/[Oo]bj/**
+**/[Bb]in/**
+
+output.txt
+plan.md
+OP.old
