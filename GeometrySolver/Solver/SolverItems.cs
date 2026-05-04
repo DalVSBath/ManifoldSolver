@@ -98,6 +98,9 @@ namespace GeometrySolver.Solver
         /// </summary>
         public float MaxBendAngleDeg { get; set; } = 180f;
 
+        /// <inheritdoc cref="SinglePipeSolver.LengthToleranceFraction"/>
+        public float LengthToleranceFraction { get; set; } = 0f;
+
         // ── Parallelism ──────────────────────────────────────────────────────
 
         /// <summary>

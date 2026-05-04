@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+    <AssemblyName>ManifoldSolver.AddIn</AssemblyName>
+    <RootNamespace>IsogridGenerator.AddIn</RootNamespace>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyTitle>Manifold Solver</AssemblyTitle>
+    <Product>ManifoldSolver</Product>
+    <Company>Dalhome3</Company>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CADBooster.SolidDna" Version="4.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ManifoldSolver.Core\ManifoldSolver.Core.csproj" />
+    <ProjectReference Include="..\ManifoldSolver.UI\ManifoldSolver.UI.csproj" />
+  </ItemGroup>
+  
+  
+  <Target Name="RegisterAddIn" AfterTargets="Build">
+    <Exec Command="&quot;C:\Windows\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe&quot; /codebase &quot;$(TargetPath)&quot;" ContinueOnError="true" />
+  </Target>
+</Project>

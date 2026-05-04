@@ -20,10 +20,6 @@ namespace GeometrySolver.Solver
         private float[] _bendRadii = Array.Empty<float>();
         private readonly List<ISolverCondition> _conditions = new();
 
-        // Static counter used to give each DifferentialEvolution call a unique seed
-        // so that parallel invocations on different threads produce independent populations.
-        private static int _deRngSeed = 41;
-
         public SinglePipeSolver() { }
 
         /// <summary>Maximum number of bends to attempt before giving up (default 8).</summary>
@@ -96,6 +92,15 @@ namespace GeometrySolver.Solver
         /// </summary>
         public bool UseParallel { get; set; } = true;
 
+        /// <summary>
+        /// Fractional tolerance applied to the target pipe length.  When greater than
+        /// zero and the primary solve at the exact target fails, the solver retries at
+        /// lengths of <c>target ± (target × LengthToleranceFraction)</c> in three equal
+        /// steps per direction.  A value of <c>0.03</c> allows ±3 % (±18 mm on a
+        /// 600 mm target).  Default is <c>0</c> (exact length required).
+        /// </summary>
+        public float LengthToleranceFraction { get; set; } = 0f;
+
         public void Setup(Vector3 startPoint, Vector3 startDir,
                           Vector3 endPoint,   Vector3 endDir)
         {
@@ -120,8 +125,52 @@ namespace GeometrySolver.Solver
         /// <summary>
         /// Iteratively tries N-bend solutions for N = 2..MaxBends, returning the first
         /// valid segment list found or null if no solution exists within the bend budget.
+        /// When <see cref="LengthToleranceFraction"/> is greater than zero and the
+        /// primary solve fails, retries at lengths within ±<c>LengthToleranceFraction</c>
+        /// of the original target in three equal steps per direction.
         /// </summary>
         public SolverResult? Solve()
+        {
+            // Primary attempt at the exact target length
+            var result = InnerSolve();
+            if (result != null || LengthToleranceFraction <= 0f)
+            {
+                if (result == null && Verbose)
+                    Console.WriteLine("\nAll bend counts exhausted — no solution found.");
+                return result;
+            }
+
+            // Retry within the ±tolerance band (3 steps per direction)
+            float band  = _targetLength * LengthToleranceFraction;
+            float step  = band / 3f;
+            float saved = _targetLength;
+            try
+            {
+                for (float delta = step; delta <= band + 0.01f; delta += step)
+                {
+                    _targetLength = saved + delta;
+                    if (Verbose) Console.WriteLine($"\n--- Retrying at {_targetLength:F1} mm (+{delta:F1}) ---");
+                    result = InnerSolve();
+                    if (result != null) return result;
+
+                    _targetLength = saved - delta;
+                    if (Verbose) Console.WriteLine($"\n--- Retrying at {_targetLength:F1} mm (-{delta:F1}) ---");
+                    result = InnerSolve();
+                    if (result != null) return result;
+                }
+            }
+            finally { _targetLength = saved; }
+
+            if (Verbose) Console.WriteLine("\nAll bend counts exhausted — no solution found.");
+            return null;
+        }
+
+        /// <summary>
+        /// Inner solve loop: tries all N-bend counts at the current <c>_targetLength</c>.
+        /// Returns a <see cref="SolverResult"/> on first success, or <c>null</c> if all
+        /// bend counts fail.  Does not modify <c>_targetLength</c>.
+        /// </summary>
+        private SolverResult? InnerSolve()
         {
             for (int nBends = 2; nBends <= MaxBends; nBends++)
             {
@@ -130,10 +179,10 @@ namespace GeometrySolver.Solver
                 var segs = TrySolveBends(nBends);
                 if (segs != null)
                 {
-                    var   sim         = PathSimulator.Simulate(_startPoint, _startDir, segs);
-                    int   bendCount   = segs.FindAll(s => s.Angle > 1e-4f).Count;
-                    float spacing     = _diameter > 0f ? _diameter * 0.5f : 10f;
-                    var   pts         = PathSampler.Sample(_startPoint, _startDir, segs, spacing);
+                    var   sim       = PathSimulator.Simulate(_startPoint, _startDir, segs);
+                    int   bendCount = segs.FindAll(s => s.Angle > 1e-4f).Count;
+                    float spacing   = _diameter > 0f ? _diameter * 0.5f : 10f;
+                    var   pts       = PathSampler.Sample(_startPoint, _startDir, segs, spacing);
 
                     if (Verbose)
                         Console.WriteLine($"==> Solution found: {bendCount} bends, {segs.Count} segments.");
@@ -142,7 +191,7 @@ namespace GeometrySolver.Solver
                     {
                         Segments       = segs,
                         TotalLength    = sim.TotalLength,
-                        PositionError  = (sim.Position  - _endPoint).Length(),
+                        PositionError  = (sim.Position - _endPoint).Length(),
                         DirectionError = (sim.Direction - _endDir).Length(),
                         BendCount      = bendCount,
                         IsValid        = true,
@@ -150,25 +199,116 @@ namespace GeometrySolver.Solver
                     };
                 }
             }
-
-            if (Verbose) Console.WriteLine("\nAll bend counts exhausted — no solution found.");
             return null;
         }
 
-        // ── Radius-combination loop ───────────────────────────────────────────
+        // ── Multi-result search (used by ManifoldSolver backtracking) ─────────
 
-        private List<BendSegment>? TrySolveBends(int nBends)
+        /// <summary>
+        /// Returns up to <paramref name="maxResults"/> valid paths ranked best-first.
+        /// Unlike <see cref="Solve"/> (which returns only the single best solution),
+        /// this method retains multiple distinct candidates so that
+        /// <see cref="ManifoldSolver"/> can back-track when a greedy commitment blocks
+        /// later pipes.
+        /// When <see cref="LengthToleranceFraction"/> is &gt; 0 and the exact-target
+        /// search yields no candidates, the search is retried within the tolerance band.
+        /// </summary>
+        public List<SolverResult> SolveAll(int maxResults = 5)
         {
-            var combos = GenerateRadiusCombinations(nBends);
-            int total  = combos.Count;
+            var all = new List<(SolverResult r, float score)>();
+            InnerSolveAll(all, maxResults);
 
-            List<BendSegment>? bestResult = null;
-            float              bestScore  = float.MinValue;
-            int                found      = 0;
+            // Tolerance retry: only triggered when exact-target search produced nothing
+            if (all.Count == 0 && LengthToleranceFraction > 0f)
+            {
+                float band  = _targetLength * LengthToleranceFraction;
+                float step  = band / 3f;
+                float saved = _targetLength;
+                try
+                {
+                    for (float delta = step; delta <= band + 0.01f && all.Count == 0; delta += step)
+                    {
+                        _targetLength = saved + delta;
+                        InnerSolveAll(all, maxResults);
+
+                        if (all.Count == 0)
+                        {
+                            _targetLength = saved - delta;
+                            InnerSolveAll(all, maxResults);
+                        }
+                    }
+                }
+                finally { _targetLength = saved; }
+            }
+
+            all.Sort((a, b) => b.score.CompareTo(a.score));
+            int take = Math.Min(maxResults, all.Count);
+            var out_ = new List<SolverResult>(take);
+            for (int i = 0; i < take; i++) out_.Add(all[i].r);
+            return out_;
+        }
+
+        /// <summary>
+        /// Accumulates valid solutions across all bend counts at the current
+        /// <c>_targetLength</c>, stopping when <paramref name="accumulator"/> reaches
+        /// <paramref name="maxResults"/>.  Called by <see cref="SolveAll"/>.
+        /// </summary>
+        private void InnerSolveAll(List<(SolverResult r, float score)> accumulator, int maxResults)
+        {
+            for (int nBends = 2; nBends <= MaxBends && accumulator.Count < maxResults; nBends++)
+            {
+                if (Verbose) Console.WriteLine($"\n=== Trying {nBends}-bend solutions (ranked) ===");
+
+                var batch = TrySolveBendsAll(nBends, maxResults - accumulator.Count);
+                foreach (var (segs, score) in batch)
+                {
+                    var   sim       = PathSimulator.Simulate(_startPoint, _startDir, segs);
+                    int   bendCount = segs.FindAll(s => s.Angle > 1e-4f).Count;
+                    float spacing   = _diameter > 0f ? _diameter * 0.5f : 10f;
+                    var   pts       = PathSampler.Sample(_startPoint, _startDir, segs, spacing);
+
+                    if (Verbose)
+                        Console.WriteLine(
+                            $"==> Candidate: {bendCount} bends, {sim.TotalLength:F1} mm (score={score:F1}).");
+
+                    accumulator.Add((new SolverResult
+                    {
+                        Segments       = segs,
+                        TotalLength    = sim.TotalLength,
+                        PositionError  = (sim.Position - _endPoint).Length(),
+                        DirectionError = (sim.Direction - _endDir).Length(),
+                        BendCount      = bendCount,
+                        IsValid        = true,
+                        SampledPoints  = pts,
+                    }, score));
+                }
+
+                // Once any bend count produces candidates, stop — higher bend counts
+                // are geometrically worse and far more expensive to search.  If all
+                // candidates at this bend count ultimately fail during backtracking,
+                // the ManifoldSolver will escalate to a higher bend count on the next
+                // call (or the user can increase MaxBacktrackCandidates / MaxBends).
+                if (batch.Count > 0) break;
+            }
+        }
+
+        // ── Radius-combination loop ───────────────────────────────────────────
+        //
+        // TrySolveBendsAll is the core implementation: it collects up to maxCollect
+        // valid solutions (sorted best-first) so ManifoldSolver can back-track across
+        // candidates when a greedy commitment blocks later pipes.
+        // TrySolveBends wraps it to return only the single best result (original API).
+
+        private List<(List<BendSegment> Segs, float Score)> TrySolveBendsAll(
+            int nBends, int maxCollect)
+        {
+            var combos  = GenerateRadiusCombinations(nBends);
+            int total   = combos.Count;
+            var results = new List<(List<BendSegment> Segs, float Score)>();
 
             if (!UseParallel)
             {
-                // ── Sequential path (unchanged; preserves Verbose output) ──────────
+                // ── Sequential path ───────────────────────────────────────────────
                 int idx = 0;
                 foreach (var radii in combos)
                 {
@@ -187,15 +327,18 @@ namespace GeometrySolver.Solver
                         continue;
                     }
 
-                    var result = TrySolveRadii(nBends, radii);
-                    if (result != null)
+                    var segs = TrySolveRadii(nBends, radii);
+                    if (segs != null)
                     {
-                        float score = ScoreSolution(result);
-                        if (score > bestScore) { bestScore = score; bestResult = result; }
+                        float score = ScoreSolution(segs);
+                        results.Add((segs, score));
 
-                        if (++found >= MaxSolutionsToRank)
+                        // When conditions are active, results from TrySolveRadii already
+                        // satisfy them (BuildSolution gates on all conditions). Cancelling
+                        // at the collection cap is always safe.
+                        if (results.Count >= maxCollect)
                         {
-                            if (Verbose) Console.WriteLine($"    Ranking cap reached ({MaxSolutionsToRank}).");
+                            if (Verbose) Console.WriteLine($"    Collection cap reached ({maxCollect}).");
                             break;
                         }
                         if (Verbose) Console.WriteLine($"    Candidate (score={score:F1}), continuing to rank...");
@@ -207,13 +350,8 @@ namespace GeometrySolver.Solver
             else
             {
                 // ── P4.1: Parallel path ───────────────────────────────────────────
-                // Each radius combination is completely independent: TrySolveRadii
-                // reads only immutable solver fields (_startPoint, _endPoint, etc.)
-                // and allocates all working state locally.  The result accumulator is
-                // protected by a lock; the CancellationTokenSource allows the loop to
-                // stop as soon as MaxSolutionsToRank valid candidates have been found.
-                var resultLock = new object();
-                using var cts  = new CancellationTokenSource();
+                var resultsLock = new object();
+                using var cts   = new CancellationTokenSource();
 
                 try
                 {
@@ -223,23 +361,20 @@ namespace GeometrySolver.Solver
                         {
                             if (cts.IsCancellationRequested) return;
 
-                            // Early arc-length filter — same as sequential path
                             float minArc = 0f;
                             foreach (float r in radii) minArc += r * 0.02f;
                             if (minArc > _targetLength) return;
 
-                            var result = TrySolveRadii(nBends, radii);
-                            if (result == null) return;
+                            var segs = TrySolveRadii(nBends, radii);
+                            if (segs == null) return;
 
-                            float score = ScoreSolution(result);
-                            lock (resultLock)
+                            float score = ScoreSolution(segs);
+                            lock (resultsLock)
                             {
-                                if (score > bestScore)
-                                {
-                                    bestScore  = score;
-                                    bestResult = result;
-                                }
-                                if (++found >= MaxSolutionsToRank)
+                                results.Add((segs, score));
+                                // Results from TrySolveRadii already satisfy all conditions
+                                // (BuildSolution gates them). Cancel at the collection cap regardless.
+                                if (results.Count >= maxCollect)
                                     cts.Cancel();
                             }
                         });
@@ -247,10 +382,16 @@ namespace GeometrySolver.Solver
                 catch (OperationCanceledException) { /* normal early-exit */ }
             }
 
-            if (Verbose && bestResult != null)
-                Console.WriteLine($"    Best solution selected (score={bestScore:F1}).");
+            results.Sort((a, b) => b.Score.CompareTo(a.Score));
+            return results;
+        }
 
-            return bestResult;
+        private List<BendSegment>? TrySolveBends(int nBends)
+        {
+            var all = TrySolveBendsAll(nBends, MaxSolutionsToRank);
+            if (Verbose && all.Count > 0)
+                Console.WriteLine($"    Best solution selected (score={all[0].Score:F1}).");
+            return all.Count > 0 ? all[0].Segs : null;
         }
 
         // ── Solution scoring (higher = better) ────────────────────────────────
@@ -395,9 +536,14 @@ namespace GeometrySolver.Solver
             const double F       = 0.8;
             const double CR      = 0.9;
 
-            // Use a unique seed per invocation so that parallel DE calls on different
-            // threads produce independent populations (Interlocked is lock-free).
-            var rng = new Random(Interlocked.Increment(ref _deRngSeed));
+            // Compute a stable, combo-specific seed from nBends and the radii values so
+            // that the same radius combination always explores the same DE population,
+            // making the N ≥ 4 search fully deterministic across parallel threads and
+            // repeated program runs (no shared counter needed).
+            int deSeed = nBends * 1_000_003;
+            foreach (float r in radii)
+                deSeed = unchecked(deSeed * 31 + BitConverter.SingleToInt32Bits(r));
+            var rng = new Random(deSeed);
 
             // Initialise population with random unit-sphere directions
             var    pop    = new double[popSize][];
@@ -850,11 +996,16 @@ namespace GeometrySolver.Solver
 
             // For N=2, the length constraint is not analytically guaranteed — verify it.
             // arcTotal was already computed above — no second SolveStraightLengths call needed.
+            // Use the tolerance window when LengthToleranceFraction > 0 so that a path
+            // that can't hit exactly _targetLength but is within the band is not rejected.
             if (nBends == 2)
             {
-                float T = _targetLength - arcTotal;
-                float sumL = 0; foreach (float L in Ls) sumL += L;
-                if (MathF.Abs(sumL - T) > 5f) return null;
+                float T       = _targetLength - arcTotal;
+                float sumL    = 0; foreach (float L in Ls) sumL += L;
+                float gate    = LengthToleranceFraction > 0f
+                    ? MathF.Max(5f, _targetLength * LengthToleranceFraction)
+                    : 5f;
+                if (MathF.Abs(sumL - T) > gate) return null;
             }
 
             var segments = BuildSegmentsRaw(dirs, radii, nBends, Ls, geomCache);

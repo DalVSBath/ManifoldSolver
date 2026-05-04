@@ -47,18 +47,38 @@ namespace GeometrySolver.Conditions
             _minClearance = minClearance;
         }
 
+        /// <summary>
+        /// Sampled points on the <em>new</em> pipe that are within this Euclidean
+        /// distance of the new pipe's start or end are exempt from the clearance
+        /// check.  Use this to exclude the physical connection-port stub region
+        /// where the collector geometry forces the pipes into close proximity.
+        /// Mirrors <c>ObstacleCondition.ExcludeEndMm</c>.  Default: 0 (no exclusion).
+        /// </summary>
+        public float ExcludeEndMm { get; init; } = 0f;
+
         /// <inheritdoc />
         public ConditionType Type => ConditionType.PipeClearance;
 
         /// <inheritdoc />
         public bool IsSatisfied(IReadOnlyList<Vector3> pathPoints, float pipeDiameter)
         {
-            float required    = _minClearance + pipeDiameter;
-            float requiredSq  = required * required;
+            if (pathPoints.Count == 0) return true;
+            float required   = _minClearance + pipeDiameter;
+            float requiredSq = required * required;
+            float excSq      = ExcludeEndMm * ExcludeEndMm;
+            Vector3 startPt  = pathPoints[0];
+            Vector3 endPt    = pathPoints[pathPoints.Count - 1];
 
             foreach (var p in pathPoints)
+            {
+                if (excSq > 0f)
+                {
+                    if (Vector3.DistanceSquared(p, startPt) <= excSq) continue;
+                    if (Vector3.DistanceSquared(p, endPt)   <= excSq) continue;
+                }
                 foreach (var q in _refPoints)
                     if ((p - q).LengthSquared() < requiredSq) return false;
+            }
 
             return true;
         }
@@ -66,11 +86,21 @@ namespace GeometrySolver.Conditions
         /// <inheritdoc />
         public double Penalty(IReadOnlyList<Vector3> pathPoints, float pipeDiameter)
         {
-            float  required = _minClearance + pipeDiameter;
-            double penalty  = 0;
+            if (pathPoints.Count == 0) return 0;
+            float   required = _minClearance + pipeDiameter;
+            float   excSq    = ExcludeEndMm * ExcludeEndMm;
+            Vector3 startPt  = pathPoints[0];
+            Vector3 endPt    = pathPoints[pathPoints.Count - 1];
+            double  penalty  = 0;
 
             foreach (var p in pathPoints)
             {
+                if (excSq > 0f)
+                {
+                    if (Vector3.DistanceSquared(p, startPt) <= excSq) continue;
+                    if (Vector3.DistanceSquared(p, endPt)   <= excSq) continue;
+                }
+
                 // Find closest reference point
                 float minDistSq = float.MaxValue;
                 foreach (var q in _refPoints)

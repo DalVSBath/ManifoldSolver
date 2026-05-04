@@ -1,9 +1,15 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.37111.16 d17.14
+VisualStudioVersion = 17.14.37111.16
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GeometrySolver", "GeometrySolver\GeometrySolver.csproj", "{B2630A2A-2403-44BB-9030-D227F6B56BEE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ManifoldSolver.AddIn", "ManifoldSolver.AddIn\ManifoldSolver.AddIn.csproj", "{6BE74BED-8827-480B-B15A-B16A0B32E7EB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ManifoldSolver.Core", "ManifoldSolver.Core\ManifoldSolver.Core.csproj", "{0BB555DC-C67D-41FA-A83F-D9AB19C39D6C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ManifoldSolver.UI", "ManifoldSolver.UI\ManifoldSolver.UI.csproj", "{0AEC4651-E294-4E02-8791-F83AEEF7440F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +21,18 @@ Global
 		{B2630A2A-2403-44BB-9030-D227F6B56BEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B2630A2A-2403-44BB-9030-D227F6B56BEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B2630A2A-2403-44BB-9030-D227F6B56BEE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6BE74BED-8827-480B-B15A-B16A0B32E7EB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6BE74BED-8827-480B-B15A-B16A0B32E7EB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6BE74BED-8827-480B-B15A-B16A0B32E7EB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6BE74BED-8827-480B-B15A-B16A0B32E7EB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0BB555DC-C67D-41FA-A83F-D9AB19C39D6C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0BB555DC-C67D-41FA-A83F-D9AB19C39D6C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0BB555DC-C67D-41FA-A83F-D9AB19C39D6C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0BB555DC-C67D-41FA-A83F-D9AB19C39D6C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0AEC4651-E294-4E02-8791-F83AEEF7440F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0AEC4651-E294-4E02-8791-F83AEEF7440F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0AEC4651-E294-4E02-8791-F83AEEF7440F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0AEC4651-E294-4E02-8791-F83AEEF7440F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

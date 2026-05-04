@@ -102,6 +102,13 @@ namespace GeometrySolver.Solver
             set => _inner.UseParallel = value;
         }
 
+        /// <inheritdoc cref="SinglePipeSolver.LengthToleranceFraction"/>
+        public float LengthToleranceFraction
+        {
+            get => _inner.LengthToleranceFraction;
+            set => _inner.LengthToleranceFraction = value;
+        }
+
         // ── Setup methods (mirror SinglePipeSolver API) ───────────────────────
 
         public void Setup(Vector3 startPoint, Vector3 startDir,
@@ -164,6 +171,7 @@ namespace GeometrySolver.Solver
             s.MinStraightLength       = config.MinStraightLength;
             s.MaxBendAngleDeg         = config.MaxBendAngleDeg;
             s.UseParallel             = config.UseParallel;
+            s.LengthToleranceFraction = config.LengthToleranceFraction;
             foreach (var cond in config.Conditions) s.AddCondition(cond);
             return s;
         }

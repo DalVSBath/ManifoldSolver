@@ -8,9 +8,9 @@ using System.Numerics;
 
 // ── Shared settings ───────────────────────────────────────────────────────────
 
-float Diameter = 40f;
-float[] BendRadii = [Diameter, 62f, 76f, 80f, 102f, 127f];
-float   Length    = 650f;
+float Diameter = 40, BendDiameter = 41.3f;
+float[] BendRadii = [BendDiameter * 1.5f, BendDiameter * 2, 102f, 127f];
+float   Length    = 450;
 
 // SolverConfig captures every setting in a single serialisable record.
 // Solver.FromConfig() applies all settings and sets up geometry in one call.
@@ -116,7 +116,7 @@ Console.WriteLine("╚═══════════════════�
 
 // Demo with the first two CSV pipes — shows inter-pipe clearance enforcement.
 // (Using only 2 pipes keeps the demo runtime reasonable.)
-var demoPipes = rows.Take(2).Reverse().ToList();
+var demoPipes = rows.Take(6).ToList();
 
 Console.WriteLine($"  Pipes    : {demoPipes.Count} (pipes 1 and 2 from CSV) — inner-solver output suppressed");
 Console.WriteLine($"  Target   : {Length} mm (explicit)");
@@ -133,13 +133,16 @@ Console.WriteLine();
 //   collector header where geometry forces near-contact.
 var manifold = new ManifoldSolver
 {
-    BendRadii      = BendRadii,
-    TargetLength   = Length,
-    Diameter       = Diameter,
-    MaxBends       = 5,     // extra bend freedom needed for longer 650mm target
-    Verbose        = false, // suppress inner-solver verbose output
-    EqualizeLength = false, 
-    MinClearance   = 3f,    // 3 mm surface-to-surface gap between pipes
+    BendRadii             = BendRadii,
+    TargetLength          = Length,
+    Diameter              = Diameter,
+    MaxBends              = 7,
+    Verbose               = false,
+    EqualizeLength        = false,
+    MinClearance          = 0f,
+    ClearanceExcludeEndMm = 0f,
+    LengthToleranceFraction = 0.03f,  // ±3% = 582–618 mm
+    MaxBacktrackCandidates  = 5,       // 5 candidates per pipe for backtracking
 };
 
 foreach (var row in demoPipes)
@@ -154,14 +157,14 @@ foreach (var row in demoPipes)
 Vector3 obstacleAxis   = new Vector3(0f, 2.9f, 0.77f);
 Vector3 obstacleCentre = new Vector3(-162.02f, -109.15f, 110.39f)
                          + Vector3.Normalize(obstacleAxis);
-//manifold.AddSharedCondition(new ObstacleCondition(new IgnoreCylinder(
-//    center: obstacleCentre,
-//    axis:   obstacleAxis,
-//    radius: 77.5f,
-//    height: 105f))
-//{
-//    ExcludeEndMm = 2f * Diameter,   // ≈82 mm — covers the connection-port stub
-//});
+manifold.AddSharedCondition(new ObstacleCondition(new IgnoreCylinder(
+    center: obstacleCentre,
+    axis:   obstacleAxis,
+    radius: 77.5f,
+    height: 105f))
+{
+    ExcludeEndMm = 2f * Diameter,   // ≈82 mm — covers the connection-port stub
+});
 
 var manifoldResults = manifold.Solve();
 
@@ -183,8 +186,10 @@ for (int i = 0; i < manifoldResults.Count; i++)
                           $"Length={r.TotalLength:F2} mm | " +
                           $"PosErr={r.PositionError:F4} mm | " +
                           $"DirErr={r.DirectionError:F6}");
+        PrintSegments(r.Segments);
         solved2++;
     }
+
 }
 
 Console.WriteLine();

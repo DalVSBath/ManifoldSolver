@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ManifoldSolver.Core</AssemblyName>
+    <RootNamespace>ManifoldSolver.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

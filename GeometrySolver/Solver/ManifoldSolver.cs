@@ -95,6 +95,36 @@ namespace GeometrySolver.Solver
         /// </summary>
         public float MinClearance { get; set; } = 0f;
 
+        /// <summary>
+        /// Sampled points on the new pipe that are within this Euclidean distance
+        /// of the new pipe's start or end are exempt from the inter-pipe clearance
+        /// check.  This allows the physical connection-port stub region (where the
+        /// collector header geometry forces the pipes into close proximity) to be
+        /// ignored without falsely rejecting otherwise valid paths.
+        /// Set to <c>0</c> to disable the exclusion zone (default).
+        /// A typical value is <c>2 × Diameter</c>.
+        /// </summary>
+        public float ClearanceExcludeEndMm { get; set; } = 0f;
+
+        /// <summary>
+        /// Fractional tolerance applied to each pipe's target length.  Passed through
+        /// to each <see cref="SinglePipeSolver"/>.  See
+        /// <see cref="SinglePipeSolver.LengthToleranceFraction"/> for details.
+        /// Default <c>0</c> (exact length required).
+        /// </summary>
+        public float LengthToleranceFraction { get; set; } = 0f;
+
+        /// <summary>
+        /// Number of alternative candidate solutions to retain per pipe for
+        /// depth-first back-tracking.  When a later pipe cannot be solved given the
+        /// currently committed upstream paths, the solver backtracks to the previous
+        /// pipe and tries its next-ranked candidate.
+        /// <para>Default is <c>1</c> (greedy — no backtracking, original behaviour).</para>
+        /// <para>Set to 3–5 to enable backtracking.  Higher values increase solve time
+        /// but improve the chance of finding a valid manifold combination.</para>
+        /// </summary>
+        public int MaxBacktrackCandidates { get; set; } = 1;
+
         // ── Pipe and condition registration ───────────────────────────────────
 
         /// <summary>Registers a pipe by its start/end geometry.</summary>
@@ -145,7 +175,12 @@ namespace GeometrySolver.Solver
                     Log($"  Pipe {i + 1}: Euclidean={euclidean:F1} mm, trying target={exploratory:F1} mm");
                     ProgressStep($"Pipe {i + 1}/{_pipes.Count} — min-length pass");
 
-                    var solver = BuildSolver(i, exploratory, quiet: true);
+                    // Pass shared conditions (static obstacles) so natural-length
+                    // results are obstacle-aware. Inter-pipe clearance conditions
+                    // cannot be active here because pipes are solved sequentially.
+                    var minLenConditions = _sharedConditions.Count > 0 ? _sharedConditions : null;
+                    var solver = BuildSolver(i, exploratory, quiet: true,
+                                            extraConditions: minLenConditions);
                     var result = solver.Solve();
 
                     if (result == null)
@@ -153,7 +188,8 @@ namespace GeometrySolver.Solver
                         // Retry at a larger exploratory target
                         exploratory *= 1.5f;
                         Log($"  Pipe {i + 1}: retry at {exploratory:F1} mm");
-                        solver = BuildSolver(i, exploratory, quiet: true);
+                        solver = BuildSolver(i, exploratory, quiet: true,
+                                            extraConditions: minLenConditions);
                         result = solver.Solve();
                     }
 
@@ -197,6 +233,13 @@ namespace GeometrySolver.Solver
 
             Log($"\n── Final solve pass at {finalTarget:F1} mm ──────────────────────────");
 
+            // Backtracking solve: when enabled, multiple candidate paths per pipe are
+            // retained so the solver can try a different upstream route when a later
+            // pipe fails.  Shortcuts (LengthInjector/Reuse) are skipped in this mode;
+            // the full SinglePipeSolver is always used to ensure a ranked candidate pool.
+            if (MaxBacktrackCandidates > 1)
+                return SolveWithBacktracking(finalTarget, enableClearance, clearanceGap);
+
             var results = new List<SolverResult?>(_pipes.Count);
 
             for (int i = 0; i < _pipes.Count; i++)
@@ -206,7 +249,8 @@ namespace GeometrySolver.Solver
                 Log($"  ManifoldSolver — Pipe {i + 1}/{_pipes.Count}");
                 Log("═══════════════════════════════════════════════");
 
-                SolverResult? result = null;
+                SolverResult? result      = null;
+                string        shortcutKind = "none";
 
                 // Reuse natural-pass result if it already hits the target
                 if (EqualizeLength
@@ -214,6 +258,7 @@ namespace GeometrySolver.Solver
                     && MathF.Abs(naturalResults[i]!.TotalLength - finalTarget) < 1f)
                 {
                     Log($"  Reusing natural-pass result (length already matches target).");
+                    shortcutKind = "Reuse";
                     result = naturalResults[i];
                 }
                 // Try LengthInjector if natural result is shorter
@@ -229,9 +274,33 @@ namespace GeometrySolver.Solver
                         p.Start, p.StartDir);
 
                     if (result != null)
+                    {
+                        shortcutKind = "LengthInjector";
                         Log($"  LengthInjector succeeded ({result.TotalLength:F1} mm).");
+                    }
                     else
+                    {
                         Log($"  LengthInjector failed — falling back to full solver.");
+                    }
+                }
+
+                // Validate shortcut result against all active conditions.
+                // Both shortcuts derive from the unconstrained min-length pass, so
+                // they may violate shared obstacle or inter-pipe clearance conditions.
+                // Nullifying result causes fall-through to the full solver below.
+                if (result != null && activeClearanceConditions.Count > 0
+                    && result.SampledPoints != null)
+                {
+                    foreach (var cond in activeClearanceConditions)
+                    {
+                        if (!cond.IsSatisfied(result.SampledPoints, Diameter))
+                        {
+                            Log($"  Pipe {i + 1}: {shortcutKind} result rejected by " +
+                                $"{cond.Type} condition — falling back to full solver.");
+                            result = null;
+                            break;
+                        }
+                    }
                 }
 
                 // Full solver if not yet solved
@@ -250,11 +319,13 @@ namespace GeometrySolver.Solver
 
                 if (result == null)
                 {
-                    Log($"\n  *** PIPE {i + 1}: NO SOLUTION FOUND — aborting manifold.");
-                    ProgressEnd();
+                    // Best-effort: skip this pipe rather than aborting the manifold.
+                    // Not adding clearance from a null pipe gives subsequent pipes the
+                    // widest possible routing space.
+                    Log($"\n  *** PIPE {i + 1}: NO SOLUTION FOUND — skipping (best-effort).");
                     results.Add(null);
-                    for (int j = i + 1; j < _pipes.Count; j++) results.Add(null);
-                    return results;
+                    ProgressStep($"Pipe {i + 1}/{_pipes.Count} — no solution");
+                    continue;
                 }
 
                 results.Add(result);
@@ -263,11 +334,15 @@ namespace GeometrySolver.Solver
                 if (enableClearance && result.SampledPoints != null)
                 {
                     activeClearanceConditions.Add(
-                        new PipeClearanceCondition(result.SampledPoints, clearanceGap));
+                        new PipeClearanceCondition(result.SampledPoints, clearanceGap)
+                        {
+                            ExcludeEndMm = ClearanceExcludeEndMm,
+                        });
 
                     Log($"  Registered clearance condition from pipe {i + 1} " +
                         $"({result.SampledPoints.Count} reference points, " +
-                        $"surface-gap={clearanceGap:F1} mm, c-c min={(clearanceGap + Diameter):F1} mm).");
+                        $"surface-gap={clearanceGap:F1} mm, c-c min={(clearanceGap + Diameter):F1} mm" +
+                        $"{(ClearanceExcludeEndMm > 0f ? $", excl-end={ClearanceExcludeEndMm:F0} mm" : "")}).");
                 }
             }
 
@@ -290,11 +365,11 @@ namespace GeometrySolver.Solver
             solver.MaxBends             = MaxBends;
             solver.MinStraightLength    = MinStraightLength;
             solver.MaxBendAngleDeg      = MaxBendAngleDeg;
-            solver.AdamEntryThreshold   = AdamEntryThreshold;
-            solver.AdamFastStageIters   = AdamFastStageIters;
-            solver.AdamFastStageThreshold = AdamFastStageThreshold;
+            solver.AdamEntryThreshold      = AdamEntryThreshold;
+            solver.AdamFastStageIters      = AdamFastStageIters;
+            solver.AdamFastStageThreshold  = AdamFastStageThreshold;
+            solver.LengthToleranceFraction = LengthToleranceFraction;
             solver.Verbose              = Verbose && !quiet;
-            // P4.1: each pipe solver runs its own parallel combo scan.
             // ManifoldSolver's pipe loop is sequential (each pipe depends on
             // the previous one for PipeClearanceCondition) so this is safe.
             solver.UseParallel          = true;
@@ -307,6 +382,163 @@ namespace GeometrySolver.Solver
                 foreach (var c in perPipe) solver.AddCondition(c);
 
             return solver;
+        }
+
+        // ── Back-tracking solve ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Final-solve pass using depth-first back-tracking: when a pipe cannot be
+        /// solved with the currently committed upstream paths, the solver backtracks
+        /// to the previous pipe and tries its next-ranked candidate solution.
+        /// </summary>
+        private List<SolverResult?> SolveWithBacktracking(
+            float finalTarget, bool enableClearance, float clearanceGap)
+        {
+            int n = _pipes.Count;
+
+            // candidatePools[i] is null until we first reach pipe i, and is reset to
+            // null on backtrack so it will be recomputed with fresh conditions.
+            var candidatePools = new List<SolverResult>?[n];
+            var selectedIdx    = new int[n];
+            var committed      = new SolverResult?[n];
+
+            // conditionsAtDepth[i] = conditions passed to BuildSolver when solving pipe i:
+            //   shared conditions + clearance conditions from committed[0..i-1]
+            // Per-pipe conditions are added inside BuildSolver, not stored here.
+            var conditionsAtDepth = new List<ISolverCondition>[n + 1];
+            conditionsAtDepth[0]  = new List<ISolverCondition>(_sharedConditions);
+
+            int pipe = 0;
+            while (pipe >= 0)
+            {
+                if (pipe == n) break; // All pipes solved successfully
+
+                // ── Compute candidate pool for this pipe if not yet done ──────────
+                if (candidatePools[pipe] == null)
+                {
+                    Log($"\n  ManifoldSolver — Pipe {pipe + 1}/{n} — collecting {MaxBacktrackCandidates} 2-bend candidate(s)");
+
+                    // Fast pass: 2-bend only — just 16 radius combos × 30×30 grid each.
+                    // No tolerance retry here: the ±5 mm gate in BuildSolution already
+                    // allows a small window, and retries for pipes with no valid route
+                    // would waste time.  If a pipe genuinely needs 3+ bends or tolerance
+                    // it will be picked up by the BestEffortGreedy fallback.
+                    var fastSolver = BuildSolver(pipe, finalTarget, quiet: !Verbose,
+                                                 extraConditions: conditionsAtDepth[pipe]);
+                    fastSolver.MaxBends              = 2;
+                    fastSolver.LengthToleranceFraction = 0f;
+                    candidatePools[pipe] = fastSolver.SolveAll(MaxBacktrackCandidates);
+
+                    selectedIdx[pipe] = 0;
+                    Log($"  Pipe {pipe + 1}: {candidatePools[pipe]!.Count} candidate(s) found.");
+                }
+
+                // ── Try the current candidate index ───────────────────────────────
+                if (selectedIdx[pipe] >= candidatePools[pipe]!.Count)
+                {
+                    // All candidates for this pipe exhausted — backtrack
+                    candidatePools[pipe] = null; // Reset; will be recomputed if we return
+                    pipe--;
+                    if (pipe < 0) break;         // Cannot backtrack further — total failure
+                    selectedIdx[pipe]++;
+                    Log($"  Backtracking to pipe {pipe + 1} — trying candidate {selectedIdx[pipe] + 1}.");
+                    continue;
+                }
+
+                // ── Commit the selected candidate for this pipe ───────────────────
+                committed[pipe] = candidatePools[pipe]![selectedIdx[pipe]];
+                Log($"  Pipe {pipe + 1}: committing candidate {selectedIdx[pipe] + 1}/{candidatePools[pipe]!.Count} " +
+                    $"({committed[pipe]!.BendCount} bends, {committed[pipe]!.TotalLength:F1} mm).");
+
+                // Build conditions for the next depth: carry forward current conditions
+                // and add a clearance constraint from the just-committed pipe.
+                var nextConds = new List<ISolverCondition>(conditionsAtDepth[pipe]);
+                if (enableClearance && committed[pipe]!.SampledPoints != null)
+                {
+                    nextConds.Add(new PipeClearanceCondition(committed[pipe]!.SampledPoints!, clearanceGap)
+                    {
+                        ExcludeEndMm = ClearanceExcludeEndMm,
+                    });
+                    Log($"  Registered clearance condition from pipe {pipe + 1} " +
+                        $"({committed[pipe]!.SampledPoints!.Count} pts, surface-gap={clearanceGap:F1} mm).");
+                }
+                conditionsAtDepth[pipe + 1] = nextConds;
+                pipe++;
+            }
+
+            ProgressEnd();
+
+            if (pipe < 0)
+            {
+                // Back-tracking found no valid combination across ALL candidates for
+                // every pipe.  Fall back to a best-effort greedy forward pass:
+                // each pipe is solved with the constraints accumulated so far; if a
+                // pipe cannot be solved it is marked null and its clearance is NOT
+                // added, giving subsequent pipes the best chance of routing.
+                Log("\n  *** ManifoldSolver: back-tracking exhausted — running best-effort greedy pass.");
+                return BestEffortGreedy(finalTarget, enableClearance, clearanceGap);
+            }
+
+            // pipe == n → all pipes successfully committed
+            Log($"\n  ManifoldSolver: all {n} pipes solved via back-tracking.");
+            var results = new List<SolverResult?>(_pipes.Count);
+            for (int i = 0; i < n; i++) results.Add(committed[i]);
+            return results;
+        }
+
+        // ── Best-effort greedy forward pass ───────────────────────────────────
+
+        /// <summary>
+        /// Sequential forward-only solve: attempts each pipe in registration order
+        /// using the full solver.  When a pipe cannot be solved, it is recorded as
+        /// <c>null</c> and no clearance condition is added for it, so subsequent
+        /// pipes are not unnecessarily constrained.
+        /// Used as a fallback when back-tracking is exhausted.
+        /// </summary>
+        private List<SolverResult?> BestEffortGreedy(
+            float finalTarget, bool enableClearance, float clearanceGap)
+        {
+            int n = _pipes.Count;
+            var results = new List<SolverResult?>(n);
+            var activeConds = new List<ISolverCondition>(_sharedConditions);
+
+            for (int i = 0; i < n; i++)
+            {
+                Log($"\n  Best-effort greedy — Pipe {i + 1}/{n}");
+                ProgressStep($"Pipe {i + 1}/{n} — best-effort");
+
+                var solver = BuildSolver(i, finalTarget, quiet: !Verbose,
+                                         extraConditions: activeConds);
+                // No tolerance retry in best-effort mode: tolerance retries cause the
+                // solver to exhaustively search ±LengthToleranceFraction × 6 extra
+                // targets for pipes that are already infeasible, wasting significant
+                // time.  A pipe that cannot solve at the exact target is skipped.
+                solver.LengthToleranceFraction = 0f;
+                var result = solver.Solve();
+
+                if (result == null)
+                {
+                    Log($"  Pipe {i + 1}: no solution found — skipping (no clearance added).");
+                    results.Add(null);
+                }
+                else
+                {
+                    Log($"  Pipe {i + 1}: solved ({result.BendCount} bends, {result.TotalLength:F1} mm).");
+                    results.Add(result);
+
+                    if (enableClearance && result.SampledPoints != null)
+                    {
+                        activeConds.Add(new PipeClearanceCondition(
+                            result.SampledPoints, clearanceGap)
+                        {
+                            ExcludeEndMm = ClearanceExcludeEndMm,
+                        });
+                        Log($"  Registered clearance condition from pipe {i + 1}.");
+                    }
+                }
+            }
+
+            return results;
         }
 
         private void Log(string msg)

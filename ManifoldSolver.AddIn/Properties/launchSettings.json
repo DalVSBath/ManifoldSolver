@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "ManifoldSolver.AddIn": {
+      "commandName": "Project"
+    },
+    "Solidworks Remote": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS\\SLDWORKS.exe"
+    }
+  }
+}
