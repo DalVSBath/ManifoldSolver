@@ -8,7 +8,7 @@ using System.Windows;
 
 namespace ManifoldSolver.Core.View
 {
-    public partial class RunnerPage : Window
+    public partial class RunnerPage : System.Windows.Controls.UserControl
     {
         private CancellationTokenSource _cts = new CancellationTokenSource();
         private ManualResetEventSlim _pauseGate = new ManualResetEventSlim(true); // set = running
@@ -79,13 +79,19 @@ namespace ManifoldSolver.Core.View
             }
         }
 
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
+        public event Action RunCompleted;
+        public bool IsRunning => !_completed;
+
+        public void RequestCancel()
         {
             _cts.Cancel();
-            _pauseGate.Set();         // unblock if paused, so the cancellation can propagate
+            _pauseGate.Set();
             CancelButton.IsEnabled = false;
             CancelButton.Content = "Cancelling...";
         }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
+            => RequestCancel();
 
         private void OnCompleted(bool success, bool cancelled = false, Exception error = null)
         {
@@ -94,22 +100,11 @@ namespace ManifoldSolver.Core.View
             CancelButton.Content = "Close";
             CancelButton.IsEnabled = true;
             CancelButton.Click -= CancelButton_Click;
-            CancelButton.Click += (s, e) => Close();
+            CancelButton.Click += (s, e) => RunCompleted?.Invoke();
 
             if (cancelled) StatusText.Text = "Cancelled.";
             else if (error != null) StatusText.Text = $"Error: {error.Message}";
             else StatusText.Text = "Complete.";
-        }
-
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-        {
-            // Don't let the user close the window mid-run via the X button
-            if (!_completed)
-            {
-                e.Cancel = true;
-                CancelButton_Click(this, null);
-            }
-            base.OnClosing(e);
         }
     }
 

@@ -1,4 +1,4 @@
-using GeometrySolver.Conditions;
+﻿using GeometrySolver.Conditions;
 using GeometrySolver.Solver;
 using System;
 using System.Collections.Generic;
@@ -10,7 +10,7 @@ using System.Numerics;
 
 float Diameter = 40, BendDiameter = 41.3f;
 float[] BendRadii = [BendDiameter * 1.5f, BendDiameter * 2, 102f, 127f];
-float   Length    = 475;
+float Length = 475;
 
 // SolverConfig captures every setting in a single serialisable record.
 // Solver.FromConfig() applies all settings and sets up geometry in one call.
@@ -131,18 +131,18 @@ Console.WriteLine();
 //   Requiring MinClearance = Diameter (82.6 mm C-C) is physically impossible there.
 //   MinClearance = 3 mm means 3 mm surface-to-surface gap everywhere except at the
 //   collector header where geometry forces near-contact.
-var manifold = new ManifoldSolver
+var manifold = new ManifoldGeoSolver
 {
-    BendRadii             = BendRadii,
-    TargetLength          = Length,
-    Diameter              = Diameter,
-    MaxBends              = 7,
-    Verbose               = false,
-    EqualizeLength        = false,
-    MinClearance          = 0f,
+    BendRadii = BendRadii,
+    TargetLength = Length,
+    Diameter = Diameter,
+    MaxBends = 7,
+    Verbose = false,
+    EqualizeLength = false,
+    MinClearance = 0f,
     ClearanceExcludeEndMm = 0f,
     LengthToleranceFraction = 0.03f,  // ±3% = 582–618 mm
-    MaxBacktrackCandidates  = 5,       // 5 candidates per pipe for backtracking
+    MaxBacktrackCandidates = 5,       // 5 candidates per pipe for backtracking
 };
 
 foreach (var row in demoPipes)
@@ -154,12 +154,12 @@ foreach (var row in demoPipes)
 // ExcludeEndMm: the pipe endpoints are connection ports that physically enter
 // the manifold body, so sampled points within 2×Diameter of each endpoint are
 // exempt from the obstacle check.  Only the routed (bent) portion must clear.
-Vector3 obstacleAxis   = new Vector3(0f, 2.9f, 0.77f);
+Vector3 obstacleAxis = new Vector3(0f, 2.9f, 0.77f);
 Vector3 obstacleCentre = new Vector3(-162.02f, -109.15f, 110.39f)
                          + Vector3.Normalize(obstacleAxis);
 manifold.AddSharedCondition(new ObstacleCondition(new IgnoreCylinder(
     center: obstacleCentre,
-    axis:   obstacleAxis,
+    axis: obstacleAxis,
     radius: 77.5f,
     height: 105f))
 {
@@ -209,8 +209,8 @@ static void PrintSegments(List<BendSegment> segs)
         if (seg.Angle > 1e-4f)
         {
             Console.WriteLine($"      CLR      : {seg.CLR,8:F2} mm");
-            Console.WriteLine($"      Angle    : {seg.Angle * 180f / MathF.PI,8:F2} deg");
-            Console.WriteLine($"      Rotation : {seg.Rotation * 180f / MathF.PI,8:F2} deg");
+            Console.WriteLine($"      Angle    : {seg.Angle * 180f / MathHelper.PI,8:F2} deg");
+            Console.WriteLine($"      Rotation : {seg.Rotation * 180f / MathHelper.PI,8:F2} deg");
             Console.WriteLine($"      Arc      : {seg.CLR * seg.Angle,8:F2} mm");
         }
     }
@@ -219,3 +219,9 @@ static void PrintSegments(List<BendSegment> segs)
 // ── Type declarations (must follow all top-level statements) ─────────────────
 
 record PipeRow(string Id, Vector3 SPoint, Vector3 SDir, Vector3 EPoint, Vector3 EDir);
+
+
+namespace System.Runtime.CompilerServices
+{
+    internal static class IsExternalInit { }
+}

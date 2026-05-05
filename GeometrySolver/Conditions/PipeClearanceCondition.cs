@@ -109,7 +109,7 @@ namespace GeometrySolver.Conditions
                     if (dSq < minDistSq) minDistSq = dSq;
                 }
 
-                float dist = MathF.Sqrt(minDistSq);
+                float dist = (float)Math.Sqrt((double)minDistSq);
                 if (dist < required)
                 {
                     float violation = required - dist;

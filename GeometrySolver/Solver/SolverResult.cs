@@ -10,7 +10,7 @@ namespace GeometrySolver.Solver
     public class SolverResult
     {
         /// <summary>Ordered list of bend segments that define the path.</summary>
-        public required List<BendSegment> Segments { get; init; }
+        public List<BendSegment> Segments { get; init; }
 
         /// <summary>Simulated total path length in mm.</summary>
         public float TotalLength { get; init; }

@@ -1,7 +1,7 @@
 ﻿using CADBooster.SolidDna;
 using ManifoldSolver.Core;
+using ManifoldSolver.Core.ViewModels;
 using ManifoldSolver.UI.Helpers;
-using ManifoldSolver.UI.ViewModels;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SolidWorks.Interop.swpublished;
@@ -32,7 +32,7 @@ namespace ManifoldSolver.UI.Pages
         private readonly ISldWorks _swApp;
         private readonly IModelDoc2 _doc;
 
-        private StartPageViewModel _inputs = new StartPageViewModel();
+        private AnalyserViewModel _inputs = new AnalyserViewModel();
         private bool _isClosing = false;
 
         public ManifoldSolverStartManager(ISldWorks swApp, IModelDoc2 doc)
@@ -343,7 +343,7 @@ namespace ManifoldSolver.UI.Pages
         {
             SyncInputsFromBoxes();
 
-            new Analyser().RunAnalysis(_swApp);
+            new Analyser().RunAnalysis(_swApp, _inputs);
         }
 
         private void SyncInputsFromBoxes()

@@ -1,10 +1,6 @@
-﻿<Window x:Class="ManifoldSolver.Core.View.RunnerPage"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Running Analysis" Height="400" Width="500"
-        WindowStartupLocation="CenterOwner"
-        ResizeMode="CanResize"
-        ShowInTaskbar="False">
+﻿<UserControl x:Class="ManifoldSolver.Core.View.RunnerPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -33,4 +29,4 @@
                     Click="CancelButton_Click"/>
         </StackPanel>
     </Grid>
-</Window>
+</UserControl>

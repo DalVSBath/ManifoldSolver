@@ -83,7 +83,7 @@ namespace GeometrySolver.Solver
 
             foreach (float R in radii)
             {
-                float minAdded = 2f * MathF.PI * R;   // deficit when s = 0
+                float minAdded = 2f * MathHelper.PI * R;   // deficit when s = 0
                 if (deficit < minAdded) continue;       // can't avoid overshooting
 
                 float s = (deficit - minAdded) / 2f;   // connecting straight needed
@@ -109,7 +109,7 @@ namespace GeometrySolver.Solver
                 {
                     StraightLength = 0f,
                     CLR            = R,
-                    Angle          = MathF.PI,
+                    Angle          = MathHelper.PI,
                     Rotation       = 0f,
                 });
 
@@ -120,7 +120,7 @@ namespace GeometrySolver.Solver
                 {
                     StraightLength = s,
                     CLR            = R,
-                    Angle          = MathF.PI,
+                    Angle          = MathHelper.PI,
                     Rotation       = 0f,
                 });
 
@@ -140,7 +140,7 @@ namespace GeometrySolver.Solver
 
                 // Verify the injected path
                 var sim = PathSimulator.Simulate(startPos, startDir, newPath);
-                float lenErr = MathF.Abs(sim.TotalLength - targetLength);
+                float lenErr = MathHelper.Abs(sim.TotalLength - targetLength);
 
                 // Use the end position/direction from the original result as reference
                 // (we verify via TotalLength and geometric consistency instead)

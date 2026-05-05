@@ -30,11 +30,11 @@ namespace GeometrySolver.Solver
     ///    Otherwise, <see cref="LengthInjector"/> is tried first; if it fails the
     ///    full solver is re-run at <c>TargetLength</c>.
     /// </summary>
-    public class ManifoldSolver
+    public class ManifoldGeoSolver
     {
         // ── Pipe definitions ──────────────────────────────────────────────────
 
-        private readonly record struct PipeDef(
+        public readonly record struct PipeDef(
             Vector3 Start, Vector3 StartDir, Vector3 End, Vector3 EndDir);
 
         private readonly List<PipeDef>                     _pipes           = new();
@@ -170,7 +170,7 @@ namespace GeometrySolver.Solver
                 {
                     var p = _pipes[i];
                     float euclidean  = (p.End - p.Start).Length();
-                    float exploratory = MathF.Max(euclidean * 1.15f, euclidean + 50f);
+                    float exploratory = MathHelper.Max(euclidean * 1.15f, euclidean + 50f);
 
                     Log($"  Pipe {i + 1}: Euclidean={euclidean:F1} mm, trying target={exploratory:F1} mm");
                     ProgressStep($"Pipe {i + 1}/{_pipes.Count} — min-length pass");
@@ -208,7 +208,7 @@ namespace GeometrySolver.Solver
                 for (int i = 0; i < _pipes.Count; i++)
                 {
                     if (naturalResults[i] != null)
-                        maxNatural = MathF.Max(maxNatural, naturalResults[i]!.TotalLength);
+                        maxNatural = MathHelper.Max(maxNatural, naturalResults[i]!.TotalLength);
                 }
 
                 if (maxNatural > 0f)
@@ -255,7 +255,7 @@ namespace GeometrySolver.Solver
                 // Reuse natural-pass result if it already hits the target
                 if (EqualizeLength
                     && naturalResults[i] != null
-                    && MathF.Abs(naturalResults[i]!.TotalLength - finalTarget) < 1f)
+                    && MathHelper.Abs(naturalResults[i]!.TotalLength - finalTarget) < 1f)
                 {
                     Log($"  Reusing natural-pass result (length already matches target).");
                     shortcutKind = "Reuse";
@@ -582,7 +582,7 @@ namespace GeometrySolver.Solver
             int filled = _progressTotal > 0
                 ? (int)Math.Round((double)_progressDone / _progressTotal * Width)
                 : 0;
-            filled = Math.Clamp(filled, 0, Width);
+            filled = MathHelper.Clamp(filled, 0, Width);
 
             string bar  = new string('█', filled) + new string('░', Width - filled);
             string frac = $"{_progressDone}/{_progressTotal}";
@@ -594,4 +594,9 @@ namespace GeometrySolver.Solver
             Console.Write($"\r  [{bar}] {frac,5}{tick}  {label,-40}");
         }
     }
+}
+
+namespace System.Runtime.CompilerServices
+{
+    internal static class IsExternalInit { }
 }

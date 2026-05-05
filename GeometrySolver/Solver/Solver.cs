@@ -542,7 +542,7 @@ namespace GeometrySolver.Solver
             // repeated program runs (no shared counter needed).
             int deSeed = nBends * 1_000_003;
             foreach (float r in radii)
-                deSeed = unchecked(deSeed * 31 + BitConverter.SingleToInt32Bits(r));
+                deSeed = unchecked(deSeed * 31 + (int)BitConverter.DoubleToInt64Bits((double)r));
             var rng = new Random(deSeed);
 
             // Initialise population with random unit-sphere directions
@@ -587,7 +587,7 @@ namespace GeometrySolver.Solver
 
                         // Clamp θ (even indices) away from the poles
                         if (m % 2 == 0)
-                            trial[m] = Math.Clamp(trial[m], 0.05, Math.PI - 0.05);
+                            trial[m] = MathHelper.Clamp(trial[m], 0.05, Math.PI - 0.05);
                     }
 
                     double ts = ComputeResidual(trial, radii, nBends, skipConditions: !evalCond);
@@ -715,15 +715,15 @@ namespace GeometrySolver.Solver
             cache = new BendGeomCache[N];
             for (int k = 0; k < N; k++)
             {
-                float cosA = Math.Clamp(Vector3.Dot(dirs[k], dirs[k + 1]), -1f, 1f);
-                float alpha = MathF.Acos(cosA);
-                if (alpha < 0.02f || alpha > MathF.PI - 0.02f)
+                float cosA = MathHelper.Clamp(Vector3.Dot(dirs[k], dirs[k + 1]), -1f, 1f);
+                float alpha = (float)Math.Acos((double)cosA);
+                if (alpha < 0.02f || alpha > MathHelper.PI - 0.02f)
                 {
                     cache = Array.Empty<BendGeomCache>();
                     return null;
                 }
 
-                float   sinA    = MathF.Sin(alpha);
+                float   sinA    = (float)Math.Sin((double)alpha);
                 Vector3 B       = (dirs[k + 1] - cosA * dirs[k]) / sinA;
                 Vector3 arcDisp = radii[k] * ((1f - cosA) * B + sinA * dirs[k]);
 
@@ -741,7 +741,7 @@ namespace GeometrySolver.Solver
             {
                 // 3×3 Cramer's rule (position constraints only)
                 float det = Vector3.Dot(dirs[0], Vector3.Cross(dirs[1], dirs[2]));
-                if (MathF.Abs(det) < 1e-5f) return null;
+                if (MathHelper.Abs(det) < 1e-5f) return null;
 
                 float L0 = Vector3.Dot(C,       Vector3.Cross(dirs[1], dirs[2])) / det;
                 float L1 = Vector3.Dot(dirs[0], Vector3.Cross(C,       dirs[2])) / det;
@@ -968,7 +968,7 @@ namespace GeometrySolver.Solver
 
                     // Clamp theta (even indices) away from poles
                     if (i % 2 == 0)
-                        p[i] = Math.Clamp(p[i], 0.05, Math.PI - 0.05);
+                        p[i] = MathHelper.Clamp(p[i], 0.05, Math.PI - 0.05);
                 }
             }
 
@@ -1003,9 +1003,9 @@ namespace GeometrySolver.Solver
                 float T       = _targetLength - arcTotal;
                 float sumL    = 0; foreach (float L in Ls) sumL += L;
                 float gate    = LengthToleranceFraction > 0f
-                    ? MathF.Max(5f, _targetLength * LengthToleranceFraction)
+                    ? MathHelper.Max(5f, _targetLength * LengthToleranceFraction)
                     : 5f;
-                if (MathF.Abs(sumL - T) > gate) return null;
+                if (MathHelper.Abs(sumL - T) > gate) return null;
             }
 
             var segments = BuildSegmentsRaw(dirs, radii, nBends, Ls, geomCache);
@@ -1014,7 +1014,7 @@ namespace GeometrySolver.Solver
             // Enforce MaxBendAngleDeg manufacturing tolerance
             if (MaxBendAngleDeg < 180f)
             {
-                float maxRad = MaxBendAngleDeg * MathF.PI / 180f;
+                float maxRad = MaxBendAngleDeg * MathHelper.PI / 180f;
                 foreach (var seg in segments)
                     if (seg.Angle > maxRad) return null;
             }
@@ -1023,7 +1023,7 @@ namespace GeometrySolver.Solver
             var   sim = PathSimulator.Simulate(_startPoint, _startDir, segments);
             float pe  = (sim.Position  - _endPoint).Length();
             float de  = (sim.Direction - _endDir).Length();
-            float le  = MathF.Abs(sim.TotalLength - _targetLength);
+            float le  = MathHelper.Abs(sim.TotalLength - _targetLength);
 
             if (Verbose)
                 Console.WriteLine($"    Sim verify: posE={pe:F3} mm  dirE={de:F5}  lenE={le:F3} mm");
@@ -1077,21 +1077,21 @@ namespace GeometrySolver.Solver
                 }
                 else
                 {
-                    cosA  = Math.Clamp(Vector3.Dot(dirs[k], dirs[k + 1]), -1f, 1f);
-                    alpha = MathF.Acos(cosA);
-                    sinA  = MathF.Sin(alpha);
+                    cosA  = MathHelper.Clamp(Vector3.Dot(dirs[k], dirs[k + 1]), -1f, 1f);
+                    alpha = (float)Math.Acos((double)cosA);
+                    sinA  = (float)Math.Sin((double)alpha);
                     B     = (dirs[k + 1] - cosA * dirs[k]) / sinA;
                 }
 
                 if (sinA < 1e-6f) return null;
 
                 PathSimulator.BuildFrame(dirs[k], out var fb0, out var fb1);
-                float phi = MathF.Atan2(Vector3.Dot(B, fb1), Vector3.Dot(B, fb0));
+                float phi = (float)Math.Atan2(Vector3.Dot(B, fb1), Vector3.Dot(B, fb0));
 
                 segments.Add(new BendSegment
                 {
                     CLR            = radii[k],
-                    StraightLength = MathF.Max(0f, Ls[k]),
+                    StraightLength = MathHelper.Max(0f, Ls[k]),
                     Angle          = alpha,
                     Rotation       = phi,
                 });
@@ -1100,7 +1100,7 @@ namespace GeometrySolver.Solver
             segments.Add(new BendSegment
             {
                 CLR            = 0f,
-                StraightLength = MathF.Max(0f, Ls[nBends]),
+                StraightLength = MathHelper.Max(0f, Ls[nBends]),
                 Angle          = 0f,
                 Rotation       = 0f,
             });

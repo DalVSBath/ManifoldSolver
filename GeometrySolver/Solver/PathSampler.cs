@@ -65,8 +65,8 @@ namespace GeometrySolver.Solver
                 if (seg.Angle > 1e-6f)
                 {
                     PathSimulator.BuildFrame(dir, out var b0, out var b1);
-                    Vector3 B = b0 * MathF.Cos(seg.Rotation)
-                              + b1 * MathF.Sin(seg.Rotation);
+                    Vector3 B = b0 * (float)Math.Cos(seg.Rotation)
+                              + b1 * (float)Math.Sin(seg.Rotation);
 
                     float   R          = seg.CLR;
                     float   fullAngle  = seg.Angle;
@@ -88,17 +88,17 @@ namespace GeometrySolver.Solver
                         toNext       = sampleSpacing;
 
                         pos = arcStart
-                            + R * MathF.Sin(angleUsed) * arcDir
-                            + R * (1f - MathF.Cos(angleUsed)) * B;
+                            + R * (float)Math.Sin((double)angleUsed) * arcDir
+                            + R * (1f - (float)Math.Cos((double)angleUsed)) * B;
                         points.Add(pos);
                     }
 
                     // Advance position and direction to the arc endpoint
                     pos = arcStart
-                        + R * MathF.Sin(fullAngle) * arcDir
-                        + R * (1f - MathF.Cos(fullAngle)) * B;
+                        + R * (float)Math.Sin((double)fullAngle) * arcDir
+                        + R * (1f - (float)Math.Cos((double)fullAngle)) * B;
                     dir = Vector3.Normalize(
-                        MathF.Cos(fullAngle) * arcDir + MathF.Sin(fullAngle) * B);
+                        (float)Math.Cos((double)fullAngle) * arcDir + (float)Math.Sin((double)fullAngle) * B);
                     toNext -= arcRemaining;
                 }
             }

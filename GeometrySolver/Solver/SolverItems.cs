@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
 using GeometrySolver.Conditions;
 
 namespace GeometrySolver.Solver
@@ -115,7 +114,6 @@ namespace GeometrySolver.Solver
         /// <summary>
         /// Conditions applied to every solve. Not serialised; populate at runtime.
         /// </summary>
-        [JsonIgnore]
         public List<ISolverCondition> Conditions { get; set; } = new();
 
         // ── Factory helpers ──────────────────────────────────────────────────

@@ -31,17 +31,17 @@ namespace GeometrySolver.Solver
                 if (seg.Angle > 1e-6f)
                 {
                     BuildFrame(dir, out Vector3 b0, out Vector3 b1);
-                    Vector3 B = b0 * MathF.Cos(seg.Rotation)
-                              + b1 * MathF.Sin(seg.Rotation);
+                    Vector3 B = b0 * (float)Math.Cos((double)seg.Rotation)
+                              + b1 * (float)Math.Sin((double)seg.Rotation);
 
                     float R     = seg.CLR;
                     float alpha = seg.Angle;
 
-                    pos += R * (1f - MathF.Cos(alpha)) * B
-                         + R * MathF.Sin(alpha) * dir;
+                    pos += R * (1f - (float)Math.Cos((double)alpha)) * B
+                         + R * (float)Math.Sin((double)alpha) * dir;
 
                     dir = Vector3.Normalize(
-                        MathF.Cos(alpha) * dir + MathF.Sin(alpha) * B);
+                        (float)Math.Cos(alpha) * dir + (float)Math.Sin((double)alpha) * B);
 
                     totalLength += R * alpha;
                 }
@@ -58,7 +58,7 @@ namespace GeometrySolver.Solver
         internal static void BuildFrame(Vector3 d, out Vector3 b0, out Vector3 b1)
         {
             // Pick the world axis least aligned with d to avoid degenerate cross-product
-            Vector3 arbitrary = (MathF.Abs(d.X) < 0.9f && MathF.Abs(d.Z) < 0.9f)
+            Vector3 arbitrary = (MathHelper.Abs(d.X) < 0.9f && MathHelper.Abs(d.Z) < 0.9f)
                 ? new Vector3(1f, 0f, 0f)
                 : new Vector3(0f, 1f, 0f);
             b0 = Vector3.Normalize(Vector3.Cross(d, arbitrary));

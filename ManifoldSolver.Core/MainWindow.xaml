@@ -1,0 +1,23 @@
+<Window x:Class="ManifoldSolver.Core.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:view="clr-namespace:ManifoldSolver.Core.View"
+        Title="Manifold Solver" Height="550" Width="900"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Closing="MainWindow_Closing">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*"/>
+            <ColumnDefinition Width="5"/>
+            <ColumnDefinition Width="2*"/>
+        </Grid.ColumnDefinitions>
+
+        <view:RunnerPage x:Name="RunnerControl" Grid.Column="0"/>
+
+        <GridSplitter Grid.Column="1" Width="5"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext" Background="#CCCCCC"/>
+
+        <view:DataPage x:Name="DataControl" Grid.Column="2"/>
+    </Grid>
+</Window>

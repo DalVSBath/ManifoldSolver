@@ -14,6 +14,9 @@
     <PackageReference Include="CADBooster.SolidDna" Version="4.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\GeometrySolver\GeometrySolver.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="System.Windows" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
