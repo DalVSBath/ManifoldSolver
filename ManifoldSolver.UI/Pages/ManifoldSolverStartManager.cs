@@ -12,6 +12,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Documents;
+using System.Windows.Media;
 
 namespace ManifoldSolver.UI.Pages
 {
@@ -343,7 +344,7 @@ namespace ManifoldSolver.UI.Pages
         {
             SyncInputsFromBoxes();
 
-            new Analyser().RunAnalysis(_swApp, _inputs);
+            new Analyser(_swApp).RunAnalysis(_inputs);
         }
 
         private void SyncInputsFromBoxes()
@@ -391,9 +392,24 @@ namespace ManifoldSolver.UI.Pages
                     {
                         var norm = (double[])face.Normal;
 
+
+                        Component2 component = (Component2)selMgr.GetSelectedObjectsComponent4(i, mark);
+
+                        if (component != null)
+                        {
+                            MathTransform compXform = component.Transform2;
+
+
+                            var mathUtility = (MathUtility)_swApp.GetMathUtility();
+                            var localPoint = (MathPoint)mathUtility.CreatePoint(norm);
+                            var worldPoint = (MathPoint)localPoint.MultiplyTransform(compXform.Inverse());
+
+                            norm = (double[])worldPoint.ArrayData;
+                        }
                         normals.Add(new Vector3((float)norm[0], (float)norm[1], (float)norm[2]));
 
-                    }else if (obj is IFeature plane)
+                    }
+                    else if (obj is IFeature plane)
                     {
                         if (plane.GetSpecificFeature2() is IRefPlane refPlane)
                         {
@@ -405,13 +421,15 @@ namespace ManifoldSolver.UI.Pages
                             if (component != null)
                             {
                                 MathTransform compXform = component.Transform2;
-                                finalXform = (MathTransform)transform.Multiply(compXform);
+                                finalXform = (MathTransform)transform.Multiply(compXform.Inverse());
                             }
 
                             double[] norm = (double[])finalXform.ArrayData;
                             normals.Add(new Vector3((float)norm[6], (float)norm[7], (float)norm[8]));
                         }
                     }
+
+
                 }
 
                 switch (Id)
@@ -448,9 +466,18 @@ namespace ManifoldSolver.UI.Pages
                 {
                     double[] localCoords;
                     var obj = selMgr.GetSelectedObject6(i, mark);
+                    var mathUtility = (MathUtility)_swApp.GetMathUtility();
                     if (obj is ISketchPoint sketchPoint)
                     {
-                        localCoords = new[] { sketchPoint.X, sketchPoint.Y, sketchPoint.Z };
+                        var rawPoint = (MathPoint)mathUtility.CreatePoint(
+                            new[] { sketchPoint.X, sketchPoint.Y, sketchPoint.Z });
+
+                        // Transform from sketch space → component model space first
+                        ISketch sketch = (ISketch)sketchPoint.GetSketch();
+                        var modelPoint = (MathPoint)rawPoint.MultiplyTransform(sketch.ModelToSketchTransform);
+
+                        localCoords = (double[])modelPoint.ArrayData;
+
                     }
                     else if(obj is Vertex vert)
                     {
@@ -466,9 +493,8 @@ namespace ManifoldSolver.UI.Pages
                     if (component != null)
                     {
                         // Use MathUtility to transform the point properly
-                        var mathUtility = (MathUtility)_swApp.GetMathUtility();
                         var localPoint = (MathPoint)mathUtility.CreatePoint(localCoords);
-                        var worldPoint = (MathPoint)localPoint.MultiplyTransform(component.Transform2);
+                        var worldPoint = (MathPoint)localPoint.MultiplyTransform(component.Transform2.Inverse());
                         worldCoords = (double[])worldPoint.ArrayData;
                     }
                     else
@@ -476,7 +502,24 @@ namespace ManifoldSolver.UI.Pages
                         worldCoords = localCoords;
                     }
 
-                    points.Add(new Vector3((float)worldCoords[0], (float)worldCoords[1], (float)worldCoords[2]));
+                    points.Add(new Vector3((float)worldCoords[0] * 1000, (float)worldCoords[1] * 1000, (float)worldCoords[2] * 1000));
+                }
+                switch (Id)
+                {
+                    case IdStartPointSelections:
+                        _inputs.StartPoints = points.ToArray(); break;
+                    case IdEndPointSelections:
+                        _inputs.EndPoints = points.ToArray(); break;
+                }
+            }
+            else if (!_isClosing)
+            {
+                switch (Id)
+                {
+                    case IdStartPointSelections:
+                        _inputs.StartPoints = null; break;
+                    case IdEndPointSelections:
+                        _inputs.EndPoints = null; break;
                 }
             }
         }

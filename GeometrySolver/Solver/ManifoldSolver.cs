@@ -144,6 +144,49 @@ namespace GeometrySolver.Solver
             _pipeConditions[pipeIndex].Add(condition);
         }
 
+        public SolverResult?[] GetNaturals()
+        {
+            SolverResult?[] naturalResults = new SolverResult?[_pipes.Count];
+            Log("── Minimum-length pass ──────────────────────────────────────");
+            for (int i = 0; i < _pipes.Count; i++)
+            {
+                var p = _pipes[i];
+                float euclidean = (p.End - p.Start).Length();
+                float exploratory = MathHelper.Max(euclidean * 1.15f, euclidean + 50f);
+
+                Log($"  Pipe {i + 1}: Euclidean={euclidean:F1} mm, trying target={exploratory:F1} mm");
+                ProgressStep($"Pipe {i + 1}/{_pipes.Count} — min-length pass");
+
+                // Pass shared conditions (static obstacles) so natural-length
+                // results are obstacle-aware. Inter-pipe clearance conditions
+                // cannot be active here because pipes are solved sequentially.
+                var minLenConditions = _sharedConditions.Count > 0 ? _sharedConditions : null;
+                var solver = BuildSolver(i, exploratory, quiet: true,
+                                        extraConditions: minLenConditions);
+                var result = solver.Solve();
+
+                if (result == null)
+                {
+                    // Retry at a larger exploratory target
+                    exploratory *= 1.5f;
+                    Log($"  Pipe {i + 1}: retry at {exploratory:F1} mm");
+                    solver = BuildSolver(i, exploratory, quiet: true,
+                                        extraConditions: minLenConditions);
+                    result = solver.Solve();
+                }
+
+                naturalResults[i] = result;
+                Log($"  Pipe {i + 1}: natural length = {result?.TotalLength.ToString("F1") ?? "FAILED"} mm");
+            }
+
+            return naturalResults;
+        }
+
+        public void ClearPipes()
+        {
+            _pipes.Clear();
+        }
+
         // ── Main solve ────────────────────────────────────────────────────────
 
         /// <summary>
@@ -541,9 +584,13 @@ namespace GeometrySolver.Solver
             return results;
         }
 
-        private void Log(string msg)
+
+        public delegate void LogEventHandler(object sender, string e);
+        public event LogEventHandler OnUpdateLog;
+
+        private void Log(string msg, bool important = true)
         {
-            if (Verbose) Console.WriteLine(msg);
+            if (Verbose || important) { Console.WriteLine(msg); if (OnUpdateLog != null) OnUpdateLog(this, msg); }
         }
 
         // ── Progress bar (used when Verbose = false) ──────────────────────────

@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
-using static GeometrySolver.Solver.ManifoldGeoSolver;
+using static ManifoldSolver.Core.Analyser;
 
 namespace ManifoldSolver.Core.View
 {
@@ -21,6 +21,11 @@ namespace ManifoldSolver.Core.View
         {
             id++;
             rows.Add(RowDisplay.FromPipeDef(id, p));
+        }
+
+        public void Clear()
+        {
+            rows.Clear();
         }
 
         public void DoPreanalyse()
@@ -45,7 +50,7 @@ namespace ManifoldSolver.Core.View
             return new RowDisplay()
             {
                 Id = id,
-                Name = $"Pipe {id}",
+                Name = Pipe.Name,
                 StartP = Pipe.Start.ToString(),
                 StartN = Pipe.StartDir.ToString(),
                 EndP = Pipe.End.ToString(),

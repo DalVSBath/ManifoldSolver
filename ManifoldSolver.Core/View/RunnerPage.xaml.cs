@@ -79,6 +79,11 @@ namespace ManifoldSolver.Core.View
             }
         }
 
+        private void StartButton_Click(object sender, RoutedEventArgs e)
+        {
+            AppendLog("Clicked");
+        } 
+
         public event Action RunCompleted;
         public bool IsRunning => !_completed;
 
@@ -106,6 +111,7 @@ namespace ManifoldSolver.Core.View
             else if (error != null) StatusText.Text = $"Error: {error.Message}";
             else StatusText.Text = "Complete.";
         }
+
     }
 
     public interface IProgressReporter
