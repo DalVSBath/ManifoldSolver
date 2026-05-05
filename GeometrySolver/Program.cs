@@ -10,7 +10,7 @@ using System.Numerics;
 
 float Diameter = 40, BendDiameter = 41.3f;
 float[] BendRadii = [BendDiameter * 1.5f, BendDiameter * 2, 102f, 127f];
-float   Length    = 450;
+float   Length    = 475;
 
 // SolverConfig captures every setting in a single serialisable record.
 // Solver.FromConfig() applies all settings and sets up geometry in one call.
@@ -194,6 +194,8 @@ for (int i = 0; i < manifoldResults.Count; i++)
 
 Console.WriteLine();
 Console.WriteLine($"  Manifold results: {solved2} solved, {failed2} failed  (of {demoPipes.Count} pipes)");
+
+Console.ReadLine();
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 

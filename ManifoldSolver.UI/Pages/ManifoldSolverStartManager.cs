@@ -1,4 +1,5 @@
 ﻿using CADBooster.SolidDna;
+using ManifoldSolver.Core;
 using ManifoldSolver.UI.Helpers;
 using ManifoldSolver.UI.ViewModels;
 using SolidWorks.Interop.sldworks;
@@ -6,9 +7,11 @@ using SolidWorks.Interop.swconst;
 using SolidWorks.Interop.swpublished;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Documents;
 
 namespace ManifoldSolver.UI.Pages
 {
@@ -126,7 +129,14 @@ namespace ManifoldSolver.UI.Pages
 
         public void OnClose(int Reason)
         {
-            
+            // Mark as closing FIRST so OnSelectionboxSelectionChanged's count==0 callback
+            // (fired by SolidWorks as it clears the selection box during close) does not
+            // null out _inputs.SelectedFace before HandleOk() reads it.
+            _isClosing = true;
+
+            if (Reason == (int)swPropertyManagerPageCloseReasons_e.swPropertyManagerPageClose_Okay)
+                HandleOk();
+
         }
 
         public void AfterClose()
@@ -245,10 +255,13 @@ namespace ManifoldSolver.UI.Pages
 
         public void OnSelectionboxListChanged(int Id, int Count)
         {
+            if (_isClosing) return;
+
             UpdateSelectionBox(Id, Count);
         }
         public void OnSelectionboxSelectionChanged(int id, int count)
         {
+            if (_isClosing) return;
             UpdateSelectionBox(id, count);
         }
 
@@ -326,6 +339,26 @@ namespace ManifoldSolver.UI.Pages
 
 
         #region Helpers
+        private void HandleOk()
+        {
+            SyncInputsFromBoxes();
+
+            new Analyser().RunAnalysis(_swApp);
+        }
+
+        private void SyncInputsFromBoxes()
+        {
+            if (_targetLengthBox != null) _inputs.TargetLength = _targetLengthBox.Value;
+            if (_pipeDiamterBox != null) _inputs.PipeDiameter = _pipeDiamterBox.Value;
+            if (_minStraightBox != null) _inputs.MinStraight = _minStraightBox.Value;
+            if (_pipeCleranceBox != null) _inputs.Clearance = _pipeCleranceBox.Value;
+            if (_lengthToleranceBox != null) _inputs.LengthTolerance = _lengthToleranceBox.Value;
+            if (_bendAngleBox != null) _inputs.MaxAngle = _bendAngleBox.Value;
+
+            if (_maxBendsBox != null) _inputs.MaxBends = (int)_maxBendsBox.Value;
+            if (_backtrackBox != null) _inputs.MaxBacktrack = (int)_backtrackBox.Value;
+        }
+
         public void UpdateSelectionBox(int Id, int Count)
         {
             switch(Id)
@@ -427,8 +460,7 @@ namespace ManifoldSolver.UI.Pages
                         continue;
                     }
 
-
-                        Component2 component = (Component2)selMgr.GetSelectedObjectsComponent4(i, mark);
+                    Component2 component = (Component2)selMgr.GetSelectedObjectsComponent4(i, mark);
 
                     double[] worldCoords;
                     if (component != null)

@@ -150,7 +150,7 @@ namespace ManifoldSolver.AddIn
 
         public void HandleIsogridClick()
         {
-            var swApp = SolidWorksEnvironment.Application?.UnsafeObject as ISldWorks;
+            var swApp = SolidWorksEnvironment.IApplication?.UnsafeObject as ISldWorks;
             var doc = swApp?.ActiveDoc as IModelDoc2;
 
             if (doc == null)
