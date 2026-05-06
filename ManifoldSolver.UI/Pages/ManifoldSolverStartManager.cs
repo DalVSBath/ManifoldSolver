@@ -94,10 +94,10 @@ namespace ManifoldSolver.UI.Pages
 
             // ── Number boxes (values entered in mm) ──────────────────────────────
             _targetLengthBox = _page.AddNumberBox(IdTargetLengthBox, 
-                "Target Runner Length", "Runner length target in mm for the system to solve.", 50, 1500);
+                "Target Runner Length", "Runner length target in mm for the system to solve.", 50, 1500, 500);
 
             _pipeDiamterBox = _page.AddNumberBox(IdPipeDiameterBox, "Pipe Diameter", "Diameter of exhaust pipe",
-                10, 200);
+                10, 200, 41.3);
 
             _minStraightBox = _page.AddNumberBox(IdMinStraightLengthBox, "Min Straight Section", "Min", 0, 500, 0);
 

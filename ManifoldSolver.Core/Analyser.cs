@@ -3,6 +3,11 @@ using ManifoldSolver.Core.ViewModels;
 using SolidWorks.Interop.sldworks;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+
+#if DEBUG
+using System.IO;
+#endif
 using System.Linq;
 using System.Numerics;
 using System.Security.Cryptography;
@@ -30,6 +35,33 @@ namespace ManifoldSolver.Core
 
             _swApp = swApp;
         }
+
+#if DEBUG
+        static float F(string s) => float.Parse(s.Trim(), CultureInfo.InvariantCulture);
+
+        private List<PipeDef> GetCSVPipes ()
+        {
+            List<PipeDef> rows = new List<PipeDef>();
+            foreach (var line in File.ReadLines("C:\\Users\\Dan\\Documents\\SW-Addins\\ManifoldSolver\\TestPipes-V1.csv").Skip(1))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var c = line.Split(',');
+                if (c.Length < 13) continue;
+
+                var def = new PipeDef(
+                    c[0].Trim(),
+                    new Vector3(F(c[1]), F(c[2]), F(c[3])),
+                    Vector3.Normalize(new Vector3(F(c[4]), F(c[5]), F(c[6]))),
+                    new Vector3(F(c[7]), F(c[8]), F(c[9])),
+                    Vector3.Normalize(new Vector3(F(c[10]), F(c[11]), F(c[12]))));
+
+                rows.Add(def);
+                mainWindow.DataControl.AddRow(def);
+            }
+
+            return rows;
+        }
+#endif
 
         public async Task RunAnalysis(AnalyserViewModel vm)
         {
@@ -67,6 +99,16 @@ namespace ManifoldSolver.Core
                 Pipes.Add(def);
             }
 
+#if DEBUG
+            bool CSV = true;
+
+            if(CSV)
+            {
+                mainWindow.DataControl.Clear();
+                Pipes = GetCSVPipes();
+                foreach (var p in Pipes) mainWindow.DataControl.AddRow(p);
+            }
+#endif
 
             mainWindow.RunnerControl.StartButton.Click += (object o, RoutedEventArgs r) => RunFullSolver();
 
@@ -106,16 +148,20 @@ namespace ManifoldSolver.Core
                     {
                         progress.Log("Potential Unsolvability - Care");
                         PipeOrders.Add(2000, Pipes[i]);
-                    }else
+                    } else
                     {
                         PipeOrders.Add(Math.Abs(results[i].TotalLength - manifold.TargetLength), Pipes[i]);
                     }
                 }
 
                 Pipes = PipeOrders.OrderByDescending(k => k.Key).Select(p => p.Value).ToList();
-                //foreach(var p in Pipes) mainWindow.DataControl.AddRow(p);
+                mainWindow.RunnerControl.Dispatcher.Invoke(() => { mainWindow.DataControl.Clear();  foreach (var p in Pipes) mainWindow.DataControl.AddRow(p); });
+
+
             });
         }
+
+
 
         private async Task RunFullSolver()
         {
