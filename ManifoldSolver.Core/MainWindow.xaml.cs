@@ -15,7 +15,7 @@ namespace ManifoldSolver.Core
             if (RunnerControl.IsRunning)
             {
                 e.Cancel = true;
-                RunnerControl.RequestCancel();
+                RunnerControl.RequestCancelAndClose();
             }
         }
     }

@@ -16,6 +16,7 @@ namespace ManifoldSolver.AddIn
     {
         private const int GroupId = 1;
         private const int CmdIsogrid = 0;
+        private const int CmdTestArc = 1;
 
         private readonly ManifoldSolverAddIn _addIn;
         private ICommandGroup? _group;
@@ -66,6 +67,17 @@ namespace ManifoldSolver.AddIn
                 CmdIsogrid,
                 (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
 
+            _group.AddCommandItem2(
+                "Test 3D Arc",
+                -1,
+                "Debug: create a test 3D sketch arc",
+                "Test 3D Arc",
+                0,
+                nameof(ManifoldSolverAddIn.OnTestArcClick),
+                "",
+                CmdTestArc,
+                (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
+
             _group.HasMenu = true;
             // HasToolbar must be true even when no floating toolbar is wanted.
             // SolidWorks' ribbon-tab engine depends on the underlying toolbar
@@ -97,21 +109,25 @@ namespace ManifoldSolver.AddIn
             // not a cast to int[], which causes:
             // "Indexed property 'ICommandGroup.CommandID' has non-optional arguments"
             int swCmdId = _group.get_CommandID(CmdIsogrid);
+            int swTestArcId = _group.get_CommandID(CmdTestArc);
 
             // Register the tab for Part and Assembly documents.
-            AddToTab(cmdMgr, swCmdId, (int)swDocumentTypes_e.swDocPART);
-            AddToTab(cmdMgr, swCmdId, (int)swDocumentTypes_e.swDocASSEMBLY);
+            AddToTab(cmdMgr, new[] { swCmdId, swTestArcId }, (int)swDocumentTypes_e.swDocPART);
+            AddToTab(cmdMgr, new[] { swCmdId, swTestArcId }, (int)swDocumentTypes_e.swDocASSEMBLY);
         }
 
-        private static void AddToTab(ICommandManager cmdMgr, int swCmdId, int docType)
+        private static void AddToTab(ICommandManager cmdMgr, int[] swCmdIds, int docType)
         {
-            if (swCmdId <= 0)
+            for (int i = 0; i < swCmdIds.Length; i++)
             {
-                MessageBox.Show(
-                    $"Isogrid Generator: invalid SW command ID ({swCmdId}).\n" +
-                    "The ribbon tab will not be created.",
-                    "Isogrid Generator");
-                return;
+                if (swCmdIds[i] <= 0)
+                {
+                    MessageBox.Show(
+                        $"Manifold Solver: invalid SW command ID ({swCmdIds[i]}) at index {i}.\n" +
+                        "The ribbon tab will not be created.",
+                        "Manifold Solver");
+                    return;
+                }
             }
 
             // Remove any tab cached from a previous add-in session.
@@ -125,22 +141,24 @@ namespace ManifoldSolver.AddIn
             if (tab == null)
             {
                 MessageBox.Show(
-                    $"Manifold Generator: AddCommandTab returned null for docType {docType}.",
-                    "Manifold Generator");
+                    $"Manifold Solver: AddCommandTab returned null for docType {docType}.",
+                    "Manifold Solver");
                 return;
             }
 
             var box = tab.AddCommandTabBox();
             if (box == null) return;
 
-            bool ok = box.AddCommands(
-                new[] { swCmdId },
-                new[] { (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow });
+            var textStyles = new int[swCmdIds.Length];
+            for (int i = 0; i < textStyles.Length; i++)
+                textStyles[i] = (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow;
+
+            bool ok = box.AddCommands(swCmdIds, textStyles);
 
             if (!ok)
                 MessageBox.Show(
-                    $"Isogrid Generator: AddCommands failed for command ID {swCmdId}.",
-                    "Isogrid Generator");
+                    $"Manifold Solver: AddCommands failed.",
+                    "Manifold Solver");
         }
 
         public void Unregister()
@@ -165,6 +183,42 @@ namespace ManifoldSolver.AddIn
 
             var pmp = new ManifoldSolverStartManager(swApp!, doc);
             pmp.Show();
+        }
+
+        public void HandleTestArcClick()
+        {
+            var swApp = SolidWorksEnvironment.IApplication?.UnsafeObject as ISldWorks;
+            var doc = swApp?.ActiveDoc as IModelDoc2;
+
+            if (doc == null)
+            {
+                MessageBox.Show("Open a part or assembly first.", "Arc Test");
+                return;
+            }
+
+            var skMgr = doc.SketchManager;
+            skMgr.AddToDB = true;
+            skMgr.Insert3DSketch(true);
+
+            // Coordinates from SketchBuilder CSV output (local metres).
+            // Start: col 1, End: col 2, Mid: col 3 — rows are x, y, z.
+
+
+            skMgr.CreateLine(0,0,0, 0.574850463867188, 0.935264343261719, 1.612033203125);
+
+            var arc = skMgr.Create3PointArc(
+                0.574850463867188, 0.935264343261719, 1.612033203125,   // start
+                0.509868957519531, 0.84900390625,     1.57434948730469, // end
+                0.536995300292969, 0.910571350097656, 1.56023767089844);// mid
+
+            skMgr.Insert3DSketch(false);
+            skMgr.AddToDB = false;
+
+            MessageBox.Show(
+                arc == null
+                    ? "Arc is NULL — Create3PointArc failed in 3D sketch."
+                    : "Arc created successfully.",
+                "Arc Test");
         }
     }
 }

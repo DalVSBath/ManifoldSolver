@@ -28,11 +28,10 @@ namespace ManifoldSolver.Core.View
             rows.Clear();
         }
 
-        public void DoPreanalyse()
-        {
 
-        }
+        public void DoPreanalyse() { }
 
+        private void BuildObstacles_Click(object sender, RoutedEventArgs e) { return; }
         private void PreAnalyse_Click(object sender, RoutedEventArgs e) => DoPreanalyse();
     }
 

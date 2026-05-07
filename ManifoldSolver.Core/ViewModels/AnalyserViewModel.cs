@@ -4,6 +4,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using SolidWorks.Interop.sldworks;
 
 namespace ManifoldSolver.Core.ViewModels
 {
@@ -15,6 +16,9 @@ namespace ManifoldSolver.Core.ViewModels
         public Vector3[]? StartNormals { get; set; }
         public Vector3[]? EndNormals { get; set; }
 
+        public IComponent2? Component { get; set; }
+
+        public IComponent2[]? ConditionComponents { get; set; }
 
         public double TargetLength { get; set; } = 100;
         public double PipeDiameter { get; set; } = 0;

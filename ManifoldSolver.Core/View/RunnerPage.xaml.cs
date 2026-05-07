@@ -13,7 +13,8 @@ namespace ManifoldSolver.Core.View
         private CancellationTokenSource _cts = new CancellationTokenSource();
         private ManualResetEventSlim _pauseGate = new ManualResetEventSlim(true); // set = running
         private bool _isPaused = false;
-        private bool _completed = false;
+        private bool _isRunning = false;
+        private bool _closeAfterCancel = false;
 
         public RunnerPage()
         {
@@ -25,6 +26,8 @@ namespace ManifoldSolver.Core.View
         /// </summary>
         public Task RunAsync(Func<IProgressReporter, CancellationToken, Task> work)
         {
+            _isRunning = true;
+            StartButton.IsEnabled = false;
             var reporter = new ProgressReporter(this, _pauseGate);
             return Task.Run(async () =>
             {
@@ -85,10 +88,15 @@ namespace ManifoldSolver.Core.View
         } 
 
         public event Action RunCompleted;
-        public bool IsRunning => !_completed;
+        public bool IsRunning => _isRunning;
 
-        public void RequestCancel()
+        public void RequestCancel() => RequestCancel(closeAfter: false);
+
+        public void RequestCancelAndClose() => RequestCancel(closeAfter: true);
+
+        private void RequestCancel(bool closeAfter)
         {
+            _closeAfterCancel = closeAfter;
             _cts.Cancel();
             _pauseGate.Set();
             CancelButton.IsEnabled = false;
@@ -100,8 +108,16 @@ namespace ManifoldSolver.Core.View
 
         private void OnCompleted(bool success, bool cancelled = false, Exception error = null)
         {
-            _completed = true;
+            _isRunning = false;
+            StartButton.IsEnabled = true;
             PauseButton.IsEnabled = false;
+
+            if (_closeAfterCancel)
+            {
+                RunCompleted?.Invoke();
+                return;
+            }
+
             CancelButton.Content = "Close";
             CancelButton.IsEnabled = true;
             CancelButton.Click -= CancelButton_Click;

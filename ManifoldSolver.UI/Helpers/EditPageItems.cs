@@ -48,7 +48,7 @@ namespace ManifoldSolver.UI.Helpers
 
         public static IPropertyManagerPageNumberbox AddNumberBox(this IPropertyManagerPage2 _page,
             int id, string caption, string tip,
-            double min, double max, double? defaultValue = null)
+            double min, double max, double? defaultValue = null, swNumberboxUnitType_e unitType = swNumberboxUnitType_e.swNumberBox_UnitlessDouble)
         {
             int enabled = (int)swAddControlOptions_e.swControlOptions_Enabled
                         | (int)swAddControlOptions_e.swControlOptions_Visible;
@@ -64,7 +64,7 @@ namespace ManifoldSolver.UI.Helpers
 
 
             box.SetRange2(
-                (short)swNumberboxUnitType_e.swNumberBox_UnitlessDouble,
+                (short)unitType,
                 min, max,
                 true,   // Inclusive — clamp to [Min, Max]
                 0.1,    // normal scroll increment (mm)

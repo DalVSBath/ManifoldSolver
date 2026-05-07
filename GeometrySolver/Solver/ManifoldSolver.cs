@@ -136,12 +136,57 @@ namespace GeometrySolver.Solver
         public void AddSharedCondition(ISolverCondition condition)
             => _sharedConditions.Add(condition);
 
+        /// <summary>Removes all shared conditions (e.g. to rebuild obstacle set).</summary>
+        public void ClearSharedConditions()
+            => _sharedConditions.Clear();
+
         /// <summary>Registers a condition applied only to the pipe at <paramref name="pipeIndex"/>.</summary>
         public void AddPipeCondition(int pipeIndex, ISolverCondition condition)
         {
             if (!_pipeConditions.ContainsKey(pipeIndex))
                 _pipeConditions[pipeIndex] = new List<ISolverCondition>();
             _pipeConditions[pipeIndex].Add(condition);
+        }
+
+
+        public SolverResult?[] GetNaturalsV2()
+        {
+            SolverResult?[] naturalResults = new SolverResult?[_pipes.Count];
+            Log("── Minimum-length pass ──────────────────────────────────────");
+            for (int i = 0; i < _pipes.Count; i++)
+            {
+                var p = _pipes[i];
+
+                var (a1, a2) = Biarc.Calculate(p.Start, p.StartDir, p.End, p.EndDir);
+                
+                float exploratory = a1.Length + a2.Length;
+
+                Log($"  Pipe {i + 1}: BiArc={exploratory:F1} mm, trying target={exploratory:F1} mm");
+                ProgressStep($"Pipe {i + 1}/{_pipes.Count} — min-length pass");
+
+                // Pass shared conditions (static obstacles) so natural-length
+                // results are obstacle-aware. Inter-pipe clearance conditions
+                // cannot be active here because pipes are solved sequentially.
+                var minLenConditions = _sharedConditions.Count > 0 ? _sharedConditions : null;
+                var solver = BuildSolver(i, exploratory, quiet: true,
+                                        extraConditions: minLenConditions);
+                var result = solver.Solve();
+
+                if (result == null)
+                {
+                    // Retry at a larger exploratory target
+                    exploratory *= 1.5f;
+                    Log($"  Pipe {i + 1}: retry at {exploratory:F1} mm");
+                    solver = BuildSolver(i, exploratory, quiet: true,
+                                        extraConditions: minLenConditions);
+                    result = solver.Solve();
+                }
+
+                naturalResults[i] = result;
+                Log($"  Pipe {i + 1}: natural length = {result?.TotalLength.ToString("F1") ?? "FAILED"} mm");
+            }
+
+            return naturalResults;
         }
 
         public SolverResult?[] GetNaturals()

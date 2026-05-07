@@ -38,5 +38,10 @@ namespace ManifoldSolver.AddIn
         {
             _commands?.HandleIsogridClick();
         }
+
+        public void OnTestArcClick()
+        {
+            _commands?.HandleTestArcClick();
+        }
     }
 }

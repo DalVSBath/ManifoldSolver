@@ -22,9 +22,9 @@ namespace ManifoldSolver.UI.Pages
             IdEndPointSelections = 30, IdEndNormalSelections = 31,
             IdTargetLengthBox = 40, IdPipeDiameterBox = 41, IdMaxBendsBox = 46, IdMinStraightLengthBox = 42, IdMinPipeToPipeClearanceBox = 43,
             IdLengthToleranceBox = 44, IdMaxBacktrackCandidatesBox = 47, IdMaxBendAngleBox = 45,
-            IdPossibleBendRadiiBox = 50;
+            IdPossibleBendRadiiBox = 50, IdComponentSelection = 60, IdConditionSelection = 61;
 
-        private IPropertyManagerPageSelectionbox? _startPointSelection, _startNormalSelection, _endPointSelection, _endNormalSelection;
+        private IPropertyManagerPageSelectionbox? _startPointSelection, _startNormalSelection, _endPointSelection, _endNormalSelection, _componentSelection, _conditionSelection;
         private IPropertyManagerPageNumberbox? _targetLengthBox, _pipeDiamterBox, _maxBendsBox, _minStraightBox, _pipeCleranceBox,
             _lengthToleranceBox, _backtrackBox, _bendAngleBox;
 
@@ -47,7 +47,7 @@ namespace ManifoldSolver.UI.Pages
             int errors = 0;
             // swPropertyManagerOptions_OkButton = 1, swPropertyManagerOptions_CancelButton = 2
             _page = (IPropertyManagerPage2)_swApp.CreatePropertyManagerPage(
-                "Isogrid Generator",
+                "Manifold Generator",
                 1 | 2,
                 this,
                 ref errors);
@@ -94,12 +94,12 @@ namespace ManifoldSolver.UI.Pages
 
             // ── Number boxes (values entered in mm) ──────────────────────────────
             _targetLengthBox = _page.AddNumberBox(IdTargetLengthBox, 
-                "Target Runner Length", "Runner length target in mm for the system to solve.", 50, 1500, 500);
+                "Target Runner Length", "Runner length target in mm for the system to solve.", 50, 1500, 500, swNumberboxUnitType_e.swNumberBox_Length);
 
             _pipeDiamterBox = _page.AddNumberBox(IdPipeDiameterBox, "Pipe Diameter", "Diameter of exhaust pipe",
-                10, 200, 41.3);
+                10, 200, 41.3, swNumberboxUnitType_e.swNumberBox_Length);
 
-            _minStraightBox = _page.AddNumberBox(IdMinStraightLengthBox, "Min Straight Section", "Min", 0, 500, 0);
+            _minStraightBox = _page.AddNumberBox(IdMinStraightLengthBox, "Min Straight Section", "Min", 0, 500, 0, swNumberboxUnitType_e.swNumberBox_Length);
 
             _lengthToleranceBox = _page.AddNumberBox(IdLengthToleranceBox, "Tolerance ± Length", "Tolerance of the overall length of each runner", 0, 100, 10);
             _maxBendsBox = _page.AddNumberBox(IdMaxBendAngleBox, "Max Bend", "Maximum single bend angle to be performed (usually 180)", 90, 360, 180);
@@ -108,6 +108,18 @@ namespace ManifoldSolver.UI.Pages
             _maxBendsBox = _page.AddIntBox(IdMaxBendsBox, "Max Bends", "Maximum number of bends per pipe (8 is the max supported)", 1, 10, 4);
 
             _backtrackBox = _page.AddIntBox(IdMaxBacktrackCandidatesBox, "Max Backtracks", "Maximum number of times the system can back track (greatly affects runtime).", 1, 10, 4);
+
+
+
+            _componentSelection = _page.AddSelectionBox(IdComponentSelection,
+                "Select Component", "Select Faces to generate normals for the end points",
+                indent, new swSelectType_e[] { swSelectType_e.swSelCOMPONENTS });
+
+            _conditionSelection = _page.AddSelectionBox(IdConditionSelection,
+                "Select Component", "Select condition objects to ignore",
+                indent, new swSelectType_e[] { swSelectType_e.swSelCOMPONENTS });
+
+            _componentSelection.SingleEntityOnly = true;
 
             IdToMark.Clear();
 
@@ -119,6 +131,10 @@ namespace ManifoldSolver.UI.Pages
             IdToMark.Add(IdEndPointSelections, _endPointSelection.Mark);
             _endNormalSelection.Mark = 8;
             IdToMark.Add(IdEndNormalSelections, _endNormalSelection.Mark);
+            _componentSelection.Mark = 16;
+            IdToMark.Add(IdComponentSelection, _componentSelection.Mark);
+            _conditionSelection.Mark = 32;
+            IdToMark.Add(IdConditionSelection, _conditionSelection.Mark);
         }
 
         Dictionary<int, int> IdToMark = new Dictionary<int, int>();
@@ -371,9 +387,59 @@ namespace ManifoldSolver.UI.Pages
                 case IdStartPointSelections:
                 case IdEndPointSelections:
                     GetPointsFromSelection(Id, Count); break;
+
+                case IdComponentSelection:
+                case IdConditionSelection:
+                    GetComponent(Id, Count); break;
+
             }
         }
 
+        public void GetComponent(int Id, int Count)
+        {
+            int mark = IdToMark[Id];
+            if (Count > 0)
+            {
+                var selMgr = (ISelectionMgr)_doc.SelectionManager;
+                int total = selMgr.GetSelectedObjectCount2(mark);
+
+                List<IComponent2> comps = new List<IComponent2>();
+
+                for (int i = 1; i <= total; i++)
+                {
+                    var obj = selMgr.GetSelectedObject6(1, mark);
+
+                    if (obj is IComponent2 comp)
+                    {
+
+                        if (Id == IdComponentSelection)
+                            _inputs.Component = comp;
+                        else
+                            comps.Add(comp);
+                    }
+
+                }
+
+                switch(Id)
+                {
+                    case IdConditionSelection:
+                        _inputs.ConditionComponents = comps.ToArray();
+                        break;
+                }
+
+            }else if(!_isClosing)
+            {
+
+                switch (Id)
+                {
+                    case IdComponentSelection:
+                        _inputs.Component = null; break;
+                    case IdConditionSelection:
+                        _inputs.ConditionComponents = null;
+                        break;
+                }
+            }
+        }
 
         public void GetNormalsFromSelection(int Id, int Count)
         {
@@ -398,15 +464,20 @@ namespace ManifoldSolver.UI.Pages
                         if (component != null)
                         {
                             MathTransform compXform = component.Transform2;
-
+                            var normParent = component.GetParent() as Component2;
+                            while (normParent != null)
+                            {
+                                compXform = (MathTransform)normParent.Transform2.Multiply(compXform);
+                                normParent = normParent.GetParent() as Component2;
+                            }
 
                             var mathUtility = (MathUtility)_swApp.GetMathUtility();
-                            var localPoint = (MathPoint)mathUtility.CreatePoint(norm);
-                            var worldPoint = (MathPoint)localPoint.MultiplyTransform(compXform.Inverse());
+                            var localVec = (MathVector)mathUtility.CreateVector(norm);
+                            var worldVec = (MathVector)localVec.MultiplyTransform(compXform);
 
-                            norm = (double[])worldPoint.ArrayData;
+                            norm = (double[])worldVec.ArrayData;
                         }
-                        normals.Add(new Vector3((float)norm[0], (float)norm[1], (float)norm[2]));
+                        normals.Add(Vector3.Normalize(new Vector3((float)norm[0], (float)norm[1], (float)norm[2])));
 
                     }
                     else if (obj is IFeature plane)
@@ -421,14 +492,23 @@ namespace ManifoldSolver.UI.Pages
                             if (component != null)
                             {
                                 MathTransform compXform = component.Transform2;
+                                var planeParent = component.GetParent() as Component2;
+                                while (planeParent != null)
+                                {
+                                    compXform = (MathTransform)planeParent.Transform2.Multiply(compXform);
+                                    planeParent = planeParent.GetParent() as Component2;
+                                }
                                 finalXform = (MathTransform)transform.Multiply(compXform.Inverse());
                             }
 
                             double[] norm = (double[])finalXform.ArrayData;
-                            normals.Add(new Vector3((float)norm[6], (float)norm[7], (float)norm[8]));
+                            normals.Add(Vector3.Normalize(new Vector3((float)norm[6], (float)norm[7], (float)norm[8])));
                         }
                     }
-
+                    else if (obj is IComponent2 comp)
+                    {
+                        _inputs.Component = comp;
+                    }
 
                 }
 
@@ -448,6 +528,8 @@ namespace ManifoldSolver.UI.Pages
                         _inputs.StartNormals = null; break;
                     case IdEndNormalSelections:
                         _inputs.EndNormals = null; break;
+                    case IdComponentSelection:
+                        _inputs.Component = null; break;
                 }
             }
         }
@@ -472,9 +554,10 @@ namespace ManifoldSolver.UI.Pages
                         var rawPoint = (MathPoint)mathUtility.CreatePoint(
                             new[] { sketchPoint.X, sketchPoint.Y, sketchPoint.Z });
 
-                        // Transform from sketch space → component model space first
+                        // Inverse of ModelToSketchTransform converts sketch space → component model space
                         ISketch sketch = (ISketch)sketchPoint.GetSketch();
-                        var modelPoint = (MathPoint)rawPoint.MultiplyTransform(sketch.ModelToSketchTransform);
+                        var sketchToModel = (MathTransform)sketch.ModelToSketchTransform;
+                        var modelPoint = (MathPoint)rawPoint.MultiplyTransform(sketchToModel.IInverse());
 
                         localCoords = (double[])modelPoint.ArrayData;
 
@@ -492,9 +575,17 @@ namespace ManifoldSolver.UI.Pages
                     double[] worldCoords;
                     if (component != null)
                     {
-                        // Use MathUtility to transform the point properly
+                        // Walk up the component hierarchy to accumulate the full transform to root assembly
+                        MathTransform accumulated = component.Transform2;
+                        var parent = component.GetParent() as Component2;
+                        while (parent != null)
+                        {
+                            accumulated = (MathTransform)parent.Transform2.Multiply(accumulated);
+                            parent = parent.GetParent() as Component2;
+                        }
+
                         var localPoint = (MathPoint)mathUtility.CreatePoint(localCoords);
-                        var worldPoint = (MathPoint)localPoint.MultiplyTransform(component.Transform2.Inverse());
+                        var worldPoint = (MathPoint)localPoint.MultiplyTransform(accumulated);
                         worldCoords = (double[])worldPoint.ArrayData;
                     }
                     else
