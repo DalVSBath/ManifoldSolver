@@ -45,6 +45,9 @@ namespace GeometrySolver.Conditions
         /// </summary>
         public float ExcludeEndMm { get; set; } = 0f;
 
+        /// <summary>The underlying obstacle shape.</summary>
+        public IIgnoreArea Area => _area;
+
         /// <inheritdoc />
         public ConditionType Type => _area.AreaType switch
         {

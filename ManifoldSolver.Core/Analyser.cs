@@ -82,14 +82,14 @@ namespace ManifoldSolver.Core
                     (float)(2 * vm.PipeDiameter), (float)(2.25 * vm.PipeDiameter), (float)(2.5 * vm.PipeDiameter), 
                     (float)(2.75 * vm.PipeDiameter), (float)(3 * vm.PipeDiameter) },
                 TargetLength = (float)vm.TargetLength,
-                Diameter = (float)vm.PipeDiameter,
+                Diameter = (float)vm.PipeDiameter - 3f,
                 MaxBends = vm.MaxBends,
                 Verbose = false,
                 EqualizeLength = false,
                 MinStraightLength = (float)vm.MinStraight,
                 MinClearance = 0f,
                 ClearanceExcludeEndMm = 0f,
-                LengthToleranceFraction = 0.03f,  // ±3% = 582–618 mm
+                LengthToleranceFraction = 0.05f,  // ±3% = 582–618 mm
                 MaxBacktrackCandidates = vm.MaxBacktrack,       // 5 candidates per pipe for backtracking
             };
 
@@ -102,7 +102,7 @@ namespace ManifoldSolver.Core
                 var sNormal = Vector3.Normalize(vm.StartNormals.Length == 1 ? vm.StartNormals[0] : vm.StartNormals[i]);
                 var eNormal = Vector3.Normalize(vm.EndNormals.Length == 1 ? vm.EndNormals[0] : vm.EndNormals[i]);
 
-                var def = new PipeDef($"Pipe {i}", vm.StartPoints[i], sNormal, vm.EndPoints[i], eNormal);
+                var def = new PipeDef($"Pipe {i}", vm.StartPoints[i], sNormal, vm.EndPoints[i], eNormal * -1);
 
                 mainWindow.DataControl.AddRow(def);
                 Pipes.Add(def);
@@ -129,7 +129,9 @@ namespace ManifoldSolver.Core
 
         private void DoBuildObs(object o, RoutedEventArgs r)
         {
+            mainWindow.DataControl.BuildObstacles.IsEnabled = false;
             BuildObstacleConditions();
+            mainWindow.DataControl.BuildObstacles.IsEnabled = true;
         }
 
         private void BuildObstacleConditions()
@@ -145,14 +147,32 @@ namespace ManifoldSolver.Core
                 progress.Log($"Building obstacle conditions for {_vm.ConditionComponents.Length} component(s)...");
                 manifold.ClearSharedConditions();
 
-                foreach (var comp in _vm.ConditionComponents)
+                int totalComps = _vm.ConditionComponents.Length;
+                for (int ci = 0; ci < totalComps; ci++)
                 {
-                    var condition = BuildOptimalObstacleCondition(comp);
+                    var comp = _vm.ConditionComponents[ci];
+                    double compBase  = ci * 100.0 / totalComps;
+                    double compSlice = 100.0 / totalComps;
+                    var condition = BuildOptimalObstacleCondition(comp, d => progress.Report(d), compBase, compSlice);
                     manifold.AddSharedCondition(condition);
                     progress.Log($"  [{condition.Type}] added for {comp.Name}");
                 }
 
                 progress.Log("Obstacle conditions ready.");
+
+                const float WarnDist = 10f;
+                foreach (var cond in manifold.SharedConditions.OfType<ObstacleCondition>())
+                {
+                    foreach (var pipe in Pipes)
+                    {
+                        float ds = cond.Area.DistanceTo(pipe.Start);
+                        float de = cond.Area.DistanceTo(pipe.End);
+                        if (ds < WarnDist)
+                            progress.Log($"  [WARN] Obstacle [{cond.Type}] is {ds:F1} mm from {pipe.Name} start");
+                        if (de < WarnDist)
+                            progress.Log($"  [WARN] Obstacle [{cond.Type}] is {de:F1} mm from {pipe.Name} end");
+                    }
+                }
             });
         }
 
@@ -240,25 +260,17 @@ namespace ManifoldSolver.Core
             }
         }
 
-        private ISolverCondition BuildOptimalObstacleCondition(IComponent2 comp)
+        private ISolverCondition BuildOptimalObstacleCondition(IComponent2 comp, Action<double> onProgress = null, double progressBase = 0, double progressSlice = 100)
         {
-            var mathUtil = (MathUtility)_swApp.GetMathUtility();
-
-            // Build component-to-world transform by walking up parent chain
             MathTransform compToWorld = comp.Transform2;
-            var parent = comp.GetParent() as Component2;
-            while (parent != null)
-            {
-                compToWorld = (MathTransform)parent.Transform2.Multiply(compToWorld);
-                parent = parent.GetParent() as Component2;
-            }
+            var xform = ToMatrix4x4(compToWorld);
 
-            var vertices = GetWorldVerticesMm(mathUtil, comp, compToWorld);
+            var vertices = GetWorldVerticesMm(comp, xform, onProgress, progressBase, progressSlice);
 
             if (vertices.Count == 0)
             {
                 // No tessellation available — fall back to tight AABB from GetBox
-                var rawBox = (double[])comp.GetBox(false, false);
+                var rawBox = (double[])comp.GetBox(true, false);
                 return new ObstacleCondition(new IgnoreRect(
                     new Vector3((float)(rawBox[0] * 1000), (float)(rawBox[1] * 1000), (float)(rawBox[2] * 1000)),
                     new Vector3((float)(rawBox[3] * 1000), (float)(rawBox[4] * 1000), (float)(rawBox[5] * 1000))));
@@ -296,9 +308,8 @@ namespace ManifoldSolver.Core
                         var cp = surf.CylinderParams as double[];
                         if (cp == null || cp.Length < 7) continue;
 
-                        // cp = [px, py, pz, ax, ay, az, radius] in metres (local space)
                         var localAxis = new Vector3((float)cp[3], (float)cp[4], (float)cp[5]);
-                        var worldAxis = TransformDirection(mathUtil, compToWorld, localAxis);
+                        var worldAxis = Vector3.Normalize(Vector3.TransformNormal(localAxis, xform));
 
                         // Deduplicate: skip axes nearly parallel to one already in the list
                         bool duplicate = false;
@@ -322,24 +333,28 @@ namespace ManifoldSolver.Core
             else if (sphereVol <= bestCylVol)                  winner = sphere;
             else                                               winner = bestCyl;
 
+
             return new ObstacleCondition(winner);
         }
 
-        private static Vector3 TransformDirection(MathUtility mathUtil, MathTransform xform, Vector3 localDir)
+        private static Matrix4x4 ToMatrix4x4(MathTransform xform)
         {
-            // Rotate a direction (not a point) through the transform by translating a unit
-            // vector from the origin and subtracting the transformed origin.
-            double[] origin = { 0, 0, 0 };
-            double[] tip = { localDir.X, localDir.Y, localDir.Z };
-            var ptOrigin = (MathPoint)((MathPoint)mathUtil.CreatePoint(origin)).MultiplyTransform(xform);
-            var ptTip    = (MathPoint)((MathPoint)mathUtil.CreatePoint(tip)).MultiplyTransform(xform);
-            var o = (double[])ptOrigin.ArrayData;
-            var t = (double[])ptTip.ArrayData;
-            return Vector3.Normalize(new Vector3((float)(t[0] - o[0]), (float)(t[1] - o[1]), (float)(t[2] - o[2])));
+            // SolidWorks ArrayData layout: [0-2]=X-axis, [3-5]=Y-axis, [6-8]=Z-axis (column vectors),
+            // [9-11]=translation (metres), [12]=scale.
+            // Build a row-vector Matrix4x4 compatible with Vector3.Transform / TransformNormal,
+            // with translation converted to mm so all geometry stays in mm.
+            var d = (double[])xform.ArrayData;
+            float s = (float)d[12];
+            return new Matrix4x4(
+                (float)(s * d[0]), (float)(s * d[1]), (float)(s * d[2]), 0f,
+                (float)(s * d[3]), (float)(s * d[4]), (float)(s * d[5]), 0f,
+                (float)(s * d[6]), (float)(s * d[7]), (float)(s * d[8]), 0f,
+                (float)(d[9]  * 1000), (float)(d[10] * 1000), (float)(d[11] * 1000), 1f);
         }
 
         private static List<Vector3> GetWorldVerticesMm(
-            MathUtility mathUtil, IComponent2 comp, MathTransform compToWorld)
+            IComponent2 comp, Matrix4x4 xform,
+            Action<double> onProgress = null, double progressBase = 0, double progressSlice = 100)
         {
             var result = new List<Vector3>();
 
@@ -352,12 +367,17 @@ namespace ManifoldSolver.Core
             tess.NeedFaceFacetMap = true;
             tess.NeedVertexParams = true;
             tess.ImprovedQuality  = true;
-            tess.MatchType        = (int)swTesselationMatchType_e.swTesselationMatchFacetTopology; // swTesselationMatchFacetTopology
+            tess.MatchType        = (int)swTesselationMatchType_e.swTesselationMatchFacetTopology;
 
             if (!tess.Tessellate()) return result;
 
+            int totalFaces = body.GetFaceCount();
+            int faceIdx = 0;
+
             // Traverse face → facets → fins → vertices (SolidWorks tessellation model).
             // Deduplicate by vertex ID so shared-edge vertices are only transformed once.
+            // Coords from GetVertexPoint are in metres; scale to mm before applying xform
+            // (xform translation is already in mm, so inputs and outputs are consistent).
             var visited = new HashSet<int>();
             var face = body.GetFirstFace() as IFace2;
             while (face != null)
@@ -365,29 +385,37 @@ namespace ManifoldSolver.Core
                 var facetIds = tess.GetFaceFacets(face) as int[];
                 if (facetIds != null)
                 {
-                    foreach (int facetId in facetIds)
-                    {
-                        var finIds = tess.GetFacetFins(facetId) as int[];
-                        if (finIds == null) continue;
-                        foreach (int finId in finIds)
-                        {
-                            var vertexIds = tess.GetFinVertices(finId) as int[];
-                            if (vertexIds == null) continue;
-                            foreach (int vid in vertexIds)
-                            {
-                                if (!visited.Add(vid)) continue;
-                                var coords = tess.GetVertexPoint(vid) as double[];
-                                if (coords == null || coords.Length < 3) continue;
+                    double faceBase  = progressBase + faceIdx * progressSlice / totalFaces;
+                    double faceSlice = progressSlice / totalFaces;
+                    int numFacets    = facetIds.Length;
 
-                                // coords are in metres, local component space
-                                var pt      = (MathPoint)mathUtil.CreatePoint(new double[] { coords[0], coords[1], coords[2] });
-                                var worldPt = (MathPoint)pt.MultiplyTransform(compToWorld);
-                                var d       = (double[])worldPt.ArrayData;
-                                result.Add(new Vector3((float)(d[0] * 1000), (float)(d[1] * 1000), (float)(d[2] * 1000)));
+                    for (int fi = 0; fi < numFacets; fi++)
+                    {
+                        var finIds = tess.GetFacetFins(facetIds[fi]) as int[];
+                        if (finIds != null)
+                        {
+                            foreach (int finId in finIds)
+                            {
+                                var vertexIds = tess.GetFinVertices(finId) as int[];
+                                if (vertexIds == null) continue;
+                                foreach (int vid in vertexIds)
+                                {
+                                    if (!visited.Add(vid)) continue;
+                                    var coords = tess.GetVertexPoint(vid) as double[];
+                                    if (coords == null || coords.Length < 3) continue;
+                                    var local = new Vector3(
+                                        (float)(coords[0] * 1000),
+                                        (float)(coords[1] * 1000),
+                                        (float)(coords[2] * 1000));
+                                    result.Add(Vector3.Transform(local, xform));
+                                }
                             }
                         }
+                        onProgress?.Invoke(faceBase + (fi + 1.0) / numFacets * faceSlice);
                     }
                 }
+
+                faceIdx++;
                 face = face.GetNextFace() as IFace2;
             }
 
@@ -424,7 +452,7 @@ namespace ManifoldSolver.Core
             }
 
             float volume = (float)( Math.PI * radius * radius * height);
-            return (new IgnoreCylinder(cylCenter, axis, radius, height), volume);
+            return (new IgnoreCylinder(cylCenter, axis, radius, (height/2f)- 3f), volume);
         }
 
         public static class WindowOwnerHelper

@@ -29,5 +29,13 @@ namespace GeometrySolver.Conditions
            point.Y >= _min.Y && point.Y <= _max.Y &&
            point.Z >= _min.Z && point.Z <= _max.Z;
         }
+
+        public float DistanceTo(Vector3 point)
+        {
+            float dx = Math.Max(0f, Math.Max(_min.X - point.X, point.X - _max.X));
+            float dy = Math.Max(0f, Math.Max(_min.Y - point.Y, point.Y - _max.Y));
+            float dz = Math.Max(0f, Math.Max(_min.Z - point.Z, point.Z - _max.Z));
+            return (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
     }
 }

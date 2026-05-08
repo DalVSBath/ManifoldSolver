@@ -169,7 +169,8 @@ namespace ManifoldSolver.Core
             double[] data = { worldMm.X / 1000.0, worldMm.Y / 1000.0, worldMm.Z / 1000.0 };
             var pt = (MathPoint)mathUtil.CreatePoint(data);
             var local = (MathPoint)pt.MultiplyTransform(worldToLocal);
-            return (double[])local.ArrayData;
+            var raw = (double[])local.ArrayData;
+            return new[] { raw[0], raw[1], raw[2] };
         }
 
         private static void BuildFrame(Vector3 dir, out Vector3 b0, out Vector3 b1)

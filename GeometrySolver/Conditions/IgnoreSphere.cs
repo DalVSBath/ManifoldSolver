@@ -31,5 +31,8 @@ namespace GeometrySolver.Conditions
             float sqrRadius = _radis * _radis;
             return sqrDistance <= sqrRadius;
         }
+
+        public float DistanceTo(Vector3 point) =>
+            Math.Max(0f, Vector3.Distance(point, _centre) - _radis);
     }
 }

@@ -140,6 +140,9 @@ namespace GeometrySolver.Solver
         public void ClearSharedConditions()
             => _sharedConditions.Clear();
 
+        /// <summary>Read-only view of the currently registered shared conditions.</summary>
+        public IReadOnlyList<ISolverCondition> SharedConditions => _sharedConditions;
+
         /// <summary>Registers a condition applied only to the pipe at <paramref name="pipeIndex"/>.</summary>
         public void AddPipeCondition(int pipeIndex, ISolverCondition condition)
         {

@@ -49,6 +49,14 @@ namespace GeometrySolver.Conditions
             return sqrDistanceFromAxis <= _radius * _radius;
         }
 
-
+        public float DistanceTo(Vector3 point)
+        {
+            var delta      = point - _centre;
+            float axial    = Vector3.Dot(delta, _axis);
+            float perpDist = (float)Math.Sqrt(Math.Max(0f, delta.LengthSquared() - axial * axial));
+            float radialEx = Math.Max(0f, perpDist - _radius);
+            float axialEx  = Math.Max(0f, Math.Abs(axial) - _height * 0.5f);
+            return (float)Math.Sqrt(radialEx * radialEx + axialEx * axialEx);
+        }
     }
 }

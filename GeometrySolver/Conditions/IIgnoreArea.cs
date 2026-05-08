@@ -11,6 +11,7 @@ namespace GeometrySolver.Conditions
     {
         public AreaType AreaType { get; }
         public bool InArea(Vector3 point);
+        public float DistanceTo(Vector3 point);
     }
     
     public enum AreaType

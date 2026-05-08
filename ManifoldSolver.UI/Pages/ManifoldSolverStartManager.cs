@@ -464,12 +464,6 @@ namespace ManifoldSolver.UI.Pages
                         if (component != null)
                         {
                             MathTransform compXform = component.Transform2;
-                            var normParent = component.GetParent() as Component2;
-                            while (normParent != null)
-                            {
-                                compXform = (MathTransform)normParent.Transform2.Multiply(compXform);
-                                normParent = normParent.GetParent() as Component2;
-                            }
 
                             var mathUtility = (MathUtility)_swApp.GetMathUtility();
                             var localVec = (MathVector)mathUtility.CreateVector(norm);
@@ -492,13 +486,7 @@ namespace ManifoldSolver.UI.Pages
                             if (component != null)
                             {
                                 MathTransform compXform = component.Transform2;
-                                var planeParent = component.GetParent() as Component2;
-                                while (planeParent != null)
-                                {
-                                    compXform = (MathTransform)planeParent.Transform2.Multiply(compXform);
-                                    planeParent = planeParent.GetParent() as Component2;
-                                }
-                                finalXform = (MathTransform)transform.Multiply(compXform.Inverse());
+                                finalXform = (MathTransform)compXform.Multiply(transform);
                             }
 
                             double[] norm = (double[])finalXform.ArrayData;
@@ -575,14 +563,7 @@ namespace ManifoldSolver.UI.Pages
                     double[] worldCoords;
                     if (component != null)
                     {
-                        // Walk up the component hierarchy to accumulate the full transform to root assembly
                         MathTransform accumulated = component.Transform2;
-                        var parent = component.GetParent() as Component2;
-                        while (parent != null)
-                        {
-                            accumulated = (MathTransform)parent.Transform2.Multiply(accumulated);
-                            parent = parent.GetParent() as Component2;
-                        }
 
                         var localPoint = (MathPoint)mathUtility.CreatePoint(localCoords);
                         var worldPoint = (MathPoint)localPoint.MultiplyTransform(accumulated);
