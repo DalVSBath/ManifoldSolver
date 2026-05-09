@@ -12,7 +12,14 @@
             <ColumnDefinition Width="2*"/>
         </Grid.ColumnDefinitions>
 
-        <view:RunnerPage x:Name="RunnerControl" Grid.Column="0"/>
+        <TabControl Grid.Column="0">
+            <TabItem Header="Options">
+                <view:OptionsPage x:Name="OptionsControl"/>
+            </TabItem>
+            <TabItem Header="Runner">
+                <view:RunnerPage x:Name="RunnerControl"/>
+            </TabItem>
+        </TabControl>
 
         <GridSplitter Grid.Column="1" Width="5"
                       HorizontalAlignment="Stretch" VerticalAlignment="Stretch"

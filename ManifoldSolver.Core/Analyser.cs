@@ -36,8 +36,6 @@ namespace ManifoldSolver.Core
 
         public Analyser(ISldWorks swApp)
         {
-            mainWindow = new MainWindow();
-
             _swApp = swApp;
         }
 
@@ -74,23 +72,24 @@ namespace ManifoldSolver.Core
             if (vm.Component != null)
                 component = vm.Component;
             _component = component;
+
+            mainWindow = new MainWindow(vm);
             WindowOwnerHelper.OwnToSolidWorks(mainWindow, _swApp);
 
             manifold = new ManifoldGeoSolver
             {
-                BendRadii = new float[] {(float)(1.5 * vm.PipeDiameter), 
-                    (float)(2 * vm.PipeDiameter), (float)(2.25 * vm.PipeDiameter), (float)(2.5 * vm.PipeDiameter), 
-                    (float)(2.75 * vm.PipeDiameter), (float)(3 * vm.PipeDiameter) },
+                BendRadii = vm.BendRadii.Select(r => r.Resolve(vm.PipeDiameter)).ToArray(),
                 TargetLength = (float)vm.TargetLength,
                 Diameter = (float)vm.PipeDiameter - 3f,
                 MaxBends = vm.MaxBends,
                 Verbose = false,
                 EqualizeLength = false,
                 MinStraightLength = (float)vm.MinStraight,
-                MinClearance = 0f,
+                MinClearance = (float)vm.Clearance,
                 ClearanceExcludeEndMm = 0f,
-                LengthToleranceFraction = 0.05f,  // ±3% = 582–618 mm
-                MaxBacktrackCandidates = vm.MaxBacktrack,       // 5 candidates per pipe for backtracking
+                LengthToleranceFraction = vm.TargetLength > 0 ? (float)(vm.LengthTolerance / vm.TargetLength) : 0f,
+                MaxBacktrackCandidates = vm.MaxBacktrack,
+                MaxBendAngleDeg = (float)vm.MaxAngle,
             };
 
             //mainWindow.DataControl.
@@ -227,6 +226,17 @@ namespace ManifoldSolver.Core
         {
             try
             {
+                // Re-read VM settings so changes made in OptionsPage take effect
+                manifold.BendRadii                = _vm!.BendRadii.Select(r => r.Resolve(_vm.PipeDiameter)).ToArray();
+                manifold.TargetLength             = (float)_vm.TargetLength;
+                manifold.Diameter                 = (float)_vm.PipeDiameter - 2f;
+                manifold.MaxBends                 = _vm.MaxBends;
+                manifold.MinStraightLength        = (float)_vm.MinStraight;
+                manifold.MinClearance             = (float)_vm.Clearance;
+                manifold.LengthToleranceFraction  = _vm.TargetLength > 0 ? (float)(_vm.LengthTolerance / _vm.TargetLength) : 0f;
+                manifold.MaxBacktrackCandidates   = _vm.MaxBacktrack;
+                manifold.MaxBendAngleDeg          = (float)_vm.MaxAngle;
+
                 // Lock SW user control so they can't edit while we run
                 _swApp.UserControl = false;
 
@@ -452,7 +462,7 @@ namespace ManifoldSolver.Core
             }
 
             float volume = (float)( Math.PI * radius * radius * height);
-            return (new IgnoreCylinder(cylCenter, axis, radius, (height/2f)- 3f), volume);
+            return (new IgnoreCylinder(cylCenter, axis, radius, (height/2f) + 5.0f), volume);
         }
 
         public static class WindowOwnerHelper

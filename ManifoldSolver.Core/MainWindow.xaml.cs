@@ -1,12 +1,14 @@
+using ManifoldSolver.Core.ViewModels;
 using System.Windows;
 
 namespace ManifoldSolver.Core
 {
     public partial class MainWindow : Window
     {
-        public MainWindow()
+        public MainWindow(AnalyserViewModel vm)
         {
             InitializeComponent();
+            OptionsControl.ViewModel = vm;
             RunnerControl.RunCompleted += () => Close();
         }
 

@@ -20,13 +20,9 @@ namespace ManifoldSolver.UI.Pages
     {
         private const int IdStartPointSelections = 20, IdStartNormalSelections = 21,
             IdEndPointSelections = 30, IdEndNormalSelections = 31,
-            IdTargetLengthBox = 40, IdPipeDiameterBox = 41, IdMaxBendsBox = 46, IdMinStraightLengthBox = 42, IdMinPipeToPipeClearanceBox = 43,
-            IdLengthToleranceBox = 44, IdMaxBacktrackCandidatesBox = 47, IdMaxBendAngleBox = 45,
-            IdPossibleBendRadiiBox = 50, IdComponentSelection = 60, IdConditionSelection = 61;
+            IdComponentSelection = 60, IdConditionSelection = 61;
 
         private IPropertyManagerPageSelectionbox? _startPointSelection, _startNormalSelection, _endPointSelection, _endNormalSelection, _componentSelection, _conditionSelection;
-        private IPropertyManagerPageNumberbox? _targetLengthBox, _pipeDiamterBox, _maxBendsBox, _minStraightBox, _pipeCleranceBox,
-            _lengthToleranceBox, _backtrackBox, _bendAngleBox;
 
         private IPropertyManagerPage2? _page;
 
@@ -92,25 +88,6 @@ namespace ManifoldSolver.UI.Pages
             _endNormalSelection.Height = 50;
 
 
-            // ── Number boxes (values entered in mm) ──────────────────────────────
-            _targetLengthBox = _page.AddNumberBox(IdTargetLengthBox, 
-                "Target Runner Length", "Runner length target in mm for the system to solve.", 50, 1500, 500, swNumberboxUnitType_e.swNumberBox_Length);
-
-            _pipeDiamterBox = _page.AddNumberBox(IdPipeDiameterBox, "Pipe Diameter", "Diameter of exhaust pipe",
-                10, 200, 41.3, swNumberboxUnitType_e.swNumberBox_Length);
-
-            _minStraightBox = _page.AddNumberBox(IdMinStraightLengthBox, "Min Straight Section", "Min", 0, 500, 0, swNumberboxUnitType_e.swNumberBox_Length);
-
-            _lengthToleranceBox = _page.AddNumberBox(IdLengthToleranceBox, "Tolerance ± Length", "Tolerance of the overall length of each runner", 0, 100, 10);
-            _maxBendsBox = _page.AddNumberBox(IdMaxBendAngleBox, "Max Bend", "Maximum single bend angle to be performed (usually 180)", 90, 360, 180);
-
-
-            _maxBendsBox = _page.AddIntBox(IdMaxBendsBox, "Max Bends", "Maximum number of bends per pipe (8 is the max supported)", 1, 10, 4);
-
-            _backtrackBox = _page.AddIntBox(IdMaxBacktrackCandidatesBox, "Max Backtracks", "Maximum number of times the system can back track (greatly affects runtime).", 1, 10, 4);
-
-
-
             _componentSelection = _page.AddSelectionBox(IdComponentSelection,
                 "Select Component", "Select Faces to generate normals for the end points",
                 indent, new swSelectType_e[] { swSelectType_e.swSelCOMPONENTS });
@@ -118,6 +95,7 @@ namespace ManifoldSolver.UI.Pages
             _conditionSelection = _page.AddSelectionBox(IdConditionSelection,
                 "Select Component", "Select condition objects to ignore",
                 indent, new swSelectType_e[] { swSelectType_e.swSelCOMPONENTS });
+            _conditionSelection.Height = 50;
 
             _componentSelection.SingleEntityOnly = true;
 
@@ -232,22 +210,7 @@ namespace ManifoldSolver.UI.Pages
             
         }
 
-        public void OnNumberboxChanged(int Id, double value)
-        {
-
-            switch (Id)
-            {
-                case IdTargetLengthBox: _inputs.TargetLength = value; break;
-                case IdPipeDiameterBox: _inputs.PipeDiameter = value; break;
-                case IdMinStraightLengthBox: _inputs.MinStraight = value; break;
-                case IdMinPipeToPipeClearanceBox: _inputs.Clearance = value; break;
-                case IdLengthToleranceBox: _inputs.LengthTolerance = value; break;
-                case IdMaxBendAngleBox: _inputs.MaxAngle = value; break;
-
-                case IdMaxBendsBox: _inputs.MaxBends = (int)value; break;
-                case IdMaxBacktrackCandidatesBox: _inputs.MaxBacktrack = (int)value; break;
-            }
-        }
+        public void OnNumberboxChanged(int Id, double value) { }
 
         public void OnComboboxEditChanged(int Id, string Text)
         {
@@ -358,22 +321,7 @@ namespace ManifoldSolver.UI.Pages
         #region Helpers
         private void HandleOk()
         {
-            SyncInputsFromBoxes();
-
             new Analyser(_swApp).RunAnalysis(_inputs);
-        }
-
-        private void SyncInputsFromBoxes()
-        {
-            if (_targetLengthBox != null) _inputs.TargetLength = _targetLengthBox.Value;
-            if (_pipeDiamterBox != null) _inputs.PipeDiameter = _pipeDiamterBox.Value;
-            if (_minStraightBox != null) _inputs.MinStraight = _minStraightBox.Value;
-            if (_pipeCleranceBox != null) _inputs.Clearance = _pipeCleranceBox.Value;
-            if (_lengthToleranceBox != null) _inputs.LengthTolerance = _lengthToleranceBox.Value;
-            if (_bendAngleBox != null) _inputs.MaxAngle = _bendAngleBox.Value;
-
-            if (_maxBendsBox != null) _inputs.MaxBends = (int)_maxBendsBox.Value;
-            if (_backtrackBox != null) _inputs.MaxBacktrack = (int)_backtrackBox.Value;
         }
 
         public void UpdateSelectionBox(int Id, int Count)
