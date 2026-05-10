@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Windows.Shapes;
+using static System.Windows.Forms.LinkLabel;
 
 namespace ManifoldSolver.Core
 {
@@ -57,8 +58,12 @@ namespace ManifoldSolver.Core
                 var result = results[i];
                 if (result == null) continue;
 
-                DrawPipeSketch(compDoc, mathUtil, worldToLocal, pipes[i], result, log);
-                DrawPipeProfile(swApp, ParentDoc, compDoc, mathUtil, worldToLocal, pipes[i], pipeDiameter, wallThickness, log, component.Name2);
+                var pipeSketch = DrawPipeSketch(compDoc, mathUtil, worldToLocal, pipes[i], result, log);
+                ISketch? pipeProfile = null; // DrawPipeProfile(swApp, ParentDoc, compDoc, mathUtil, worldToLocal, pipes[i], pipeDiameter, wallThickness, log, component.Name2);
+                if (pipeSketch != null && pipeProfile != null)
+                {
+                    var pipeFeature = PerformSweep(ParentDoc, compDoc, pipeProfile, pipeSketch, pipes[i], log);
+                }
             }
 
             compDoc.ForceRebuild3(false);
@@ -69,7 +74,7 @@ namespace ManifoldSolver.Core
             }
         }
 
-        private static void DrawPipeSketch(
+        private static ISketch? DrawPipeSketch(
             IModelDoc2 compDoc,
             MathUtility mathUtil,
             MathTransform worldToLocal,
@@ -79,21 +84,22 @@ namespace ManifoldSolver.Core
         {
             var sketchMgr = compDoc.SketchManager;
 
-            sketchMgr.AddToDB = true;
             sketchMgr.Insert3DSketch(true);
 
-            DrawSegments(sketchMgr, mathUtil, worldToLocal, pipe.Start, pipe.StartDir, result.Segments, pipe.End, log);
+            var pipeSketch = DrawSegments(sketchMgr, compDoc, mathUtil, worldToLocal, pipe.Start, pipe.StartDir, result.Segments, pipe.End, log);
 
             sketchMgr.Insert3DSketch(false);
-            sketchMgr.AddToDB = false;
 
-            var feature = (IFeature)compDoc.Extension.GetLastFeatureAdded();
+            var feature = (IFeature?)pipeSketch;
             if (feature != null)
                 feature.Name = pipe.Name;
+
+            return pipeSketch;
         }
 
-        private static void DrawSegments(
+        private static ISketch? DrawSegments(
             ISketchManager sketchMgr,
+            IModelDoc2 compDoc,
             MathUtility mathUtil,
             MathTransform worldToLocal,
             Vector3 startPos,
@@ -109,7 +115,12 @@ namespace ManifoldSolver.Core
             // same Vector3 introduce µm-scale drift that SolidWorks treats as separate
             // vertices, producing two open loops instead of one continuous sketch.
             double[] curLocal = ToLocalMeters(mathUtil, worldToLocal, startPos);
+            double[] startLocal = curLocal;
             int segIdx = 0;
+
+            ISketch? sketch = null;
+            ISketchSegment? prevSeg = null;
+            ISketchSegment? firstSeg = null;
 
             foreach (var seg in segments)
             {
@@ -121,8 +132,16 @@ namespace ManifoldSolver.Core
                     Vector3 lineEnd = pos + dir * seg.StraightLength;
                     log?.Invoke($"[SketchBuilder] Seg {segIdx} straight end: ({lineEnd.X:F3}, {lineEnd.Y:F3}, {lineEnd.Z:F3})");
                     double[] lineEndLocal = ToLocalMeters(mathUtil, worldToLocal, lineEnd);
-                    sketchMgr.CreateLine(curLocal[0], curLocal[1], curLocal[2],
-                                         lineEndLocal[0], lineEndLocal[1], lineEndLocal[2]);
+                    var line = sketchMgr.CreateLine(curLocal[0], curLocal[1], curLocal[2],
+                                         lineEndLocal[0], lineEndLocal[1], lineEndLocal[2]) as ISketchSegment;
+
+                    if (line != null)
+                    {
+                        sketch = line.GetSketch();
+                        firstSeg ??= line;
+                        prevSeg = line;
+                    }
+
                     pos = lineEnd;
                     curLocal = lineEndLocal;
                 }
@@ -155,9 +174,12 @@ namespace ManifoldSolver.Core
                     var arc = sketchMgr.Create3PointArc(
                         curLocal[0],    curLocal[1],    curLocal[2],
                         arcEndLocal[0], arcEndLocal[1], arcEndLocal[2],
-                        arcMidLocal[0], arcMidLocal[1], arcMidLocal[2]);
+                        arcMidLocal[0], arcMidLocal[1], arcMidLocal[2]) as ISketchSegment;
                     if (arc == null) throw new InvalidOperationException(
                         $"Create3PointArc returned null for pipe segment (angle={seg.Angle:F3} rad, CLR={seg.CLR:F4} m).");
+                    sketch = arc.GetSketch();
+                    firstSeg ??= arc;
+                    prevSeg = arc;
 
                     pos = arcEnd;
                     curLocal = arcEndLocal;
@@ -166,10 +188,103 @@ namespace ManifoldSolver.Core
                 }
             }
 
+            // Anchor the first and last points so the sketch cannot drift on rebuild.
+            // Use coordinate comparison to find the correct endpoint regardless of arc orientation.
+            if (firstSeg != null)
+            {
+                var (fa, fb) = GetEndpoints(firstSeg);
+                var firstPt = ClosestToLocal(fa, fb, startLocal);
+                if (firstPt != null)
+                {
+                    compDoc.ClearSelection2(true);
+                    firstPt.Select4(false, null);
+                    compDoc.SketchAddConstraints("sgFIXED");
+                    compDoc.ClearSelection2(true);
+                }
+            }
+            if (prevSeg != null)
+            {
+                var (la, lb) = GetEndpoints(prevSeg);
+                var lastPt = ClosestToLocal(la, lb, curLocal);
+                if (lastPt != null)
+                {
+                    compDoc.ClearSelection2(true);
+                    lastPt.Select4(false, null);
+                    compDoc.SketchAddConstraints("sgFIXED");
+                    compDoc.ClearSelection2(true);
+                }
+            }
+
             float endError = Vector3.Distance(pos, expectedEnd);
             log?.Invoke($"[SketchBuilder] Final pos:      ({pos.X:F3}, {pos.Y:F3}, {pos.Z:F3})");
             log?.Invoke($"[SketchBuilder] Expected end:   ({expectedEnd.X:F3}, {expectedEnd.Y:F3}, {expectedEnd.Z:F3})");
             log?.Invoke($"[SketchBuilder] Endpoint error: {endError:F3} mm");
+
+            return sketch;
+        }
+
+        private static void ApplyCoincidentAndLog(
+            IModelDoc2 doc,
+            ISketchSegment prev,
+            ISketchSegment cur,
+            int segIdx,
+            string label,
+            Action<string>? log)
+        {
+            var (p1a, p1b) = GetEndpoints(prev);
+            var (p2a, p2b) = GetEndpoints(cur);
+            if (p1a == null || p1b == null || p2a == null || p2b == null)
+            {
+                log?.Invoke($"[SketchBuilder] WARNING seg {segIdx} {label}: null endpoint, skipping coincident constraint");
+                return;
+            }
+
+            // SolidWorks can reverse arc orientation, so don't assume GetEndPoint2/GetStartPoint2
+            // map to the junction. Instead find the closest pair of endpoints across the two segments.
+            static double SqDist(ISketchPoint a, ISketchPoint b) =>
+                (a.X-b.X)*(a.X-b.X) + (a.Y-b.Y)*(a.Y-b.Y) + (a.Z-b.Z)*(a.Z-b.Z);
+
+            double dAC = SqDist(p1a, p2a), dAD = SqDist(p1a, p2b);
+            double dBC = SqDist(p1b, p2a), dBD = SqDist(p1b, p2b);
+            double min = Math.Min(Math.Min(dAC, dAD), Math.Min(dBC, dBD));
+
+            ISketchPoint pt1 = (min == dAC || min == dAD) ? p1a : p1b;
+            ISketchPoint pt2 = (min == dAC || min == dBC) ? p2a : p2b;
+
+            double x1 = pt1.X, y1 = pt1.Y, z1 = pt1.Z;
+            double x2 = pt2.X, y2 = pt2.Y, z2 = pt2.Z;
+
+            doc.ClearSelection2(true);
+            var sel = pt1.Select4(false, null);
+            sel &= pt2.Select4(true, null);
+
+            doc.SketchAddConstraints("sgCOINCIDENT");
+            doc.ClearSelection2(true);
+
+            static double Dist(double dx, double dy, double dz) =>
+                Math.Sqrt(dx * dx + dy * dy + dz * dz) * 1000.0;
+
+            double moved1 = Dist(pt1.X - x1, pt1.Y - y1, pt1.Z - z1);
+            double moved2 = Dist(pt2.X - x2, pt2.Y - y2, pt2.Z - z2);
+            double maxMoved = Math.Max(moved1, moved2);
+            if (maxMoved > 0.1)
+                log?.Invoke(
+                    $"[SketchBuilder] WARNING seg {segIdx} {label}: junction moved {maxMoved:F3} mm " +
+                    $"applying coincident (pt1={moved1:F3} mm, pt2={moved2:F3} mm)");
+        }
+
+        private static (ISketchPoint? a, ISketchPoint? b) GetEndpoints(ISketchSegment seg) =>
+            seg is ISketchLine l ? ((ISketchPoint?)l.GetStartPoint2(), (ISketchPoint?)l.GetEndPoint2()) :
+            seg is ISketchArc  a ? ((ISketchPoint?)a.GetStartPoint2(), (ISketchPoint?)a.GetEndPoint2()) :
+            (null, null);
+
+        private static ISketchPoint? ClosestToLocal(ISketchPoint? a, ISketchPoint? b, double[] local)
+        {
+            if (a == null) return b;
+            if (b == null) return a;
+            double da = (a.X-local[0])*(a.X-local[0]) + (a.Y-local[1])*(a.Y-local[1]) + (a.Z-local[2])*(a.Z-local[2]);
+            double db = (b.X-local[0])*(b.X-local[0]) + (b.Y-local[1])*(b.Y-local[1]) + (b.Z-local[2])*(b.Z-local[2]);
+            return da <= db ? a : b;
         }
 
         private static double[] ToLocalMeters(MathUtility mathUtil, MathTransform worldToLocal, Vector3 worldMm)
@@ -190,7 +305,7 @@ namespace ManifoldSolver.Core
             b1 = Vector3.Cross(dir, b0);
         }
 
-        private static void DrawPipeProfile(
+        private static ISketch? DrawPipeProfile(
             ISldWorks swApp,
             IModelDoc2 parentDoc,
             IModelDoc2 compDoc,
@@ -223,7 +338,7 @@ namespace ManifoldSolver.Core
             if (guideSketch == null)
             {
                 log?.Invoke($"[SketchBuilder] Profile guide sketch failed for {pipe.Name}");
-                return;
+                return null;
             }else
                 guideFeature.Name = $"_Guide_{pipe.Name}";
 
@@ -256,7 +371,7 @@ namespace ManifoldSolver.Core
             if (planeFeature == null)
             {
                 log?.Invoke($"[SketchBuilder] Reference plane creation failed for {pipe.Name}");
-                return;
+                return null;
             }
             planeFeature.Name = $"Profile_Plane_{pipe.Name}";
 
@@ -289,61 +404,76 @@ namespace ManifoldSolver.Core
             if (profileFeature == null)
             {
                 log?.Invoke($"[SketchBuilder] Profile sketch creation failed for {pipe.Name}");
-                return;
+                return null;
             }
             profileFeature.Name = $"Profile_{pipe.Name}";
 
             partDoc.EditRebuild3();
 
-            // ── D: Swept extrude — profile sketch (mark 1) swept along centreline path (mark 4).
+
+            return (ISketch)seg.GetSketch();
+        }
+
+        public static IFeature? PerformSweep(
+            IModelDoc2 parentDoc,
+            IModelDoc2 compDoc,
+            ISketch profileSketch, ISketch centreLine,
+            Analyser.PipeDef pipe,
+            Action<string>? log = null)
+        {
+
+            var partDoc = (IModelDoc2)((IAssemblyDoc)parentDoc).GetEditTarget();
             parentDoc.ClearSelection2(true);
             partDoc.ClearSelection2(true);
 
+            //var selectManager = partDoc.SelectionManager;
 
-            var profileSD = assySelMgr.CreateSelectData(); profileSD.Mark = 1;
-            var centreSD = assySelMgr.CreateSelectData(); centreSD.Mark = 4;
+            //var profileSD = selectManager.Crea(); profileSD.Mark = 1;
+            //var centreSD = selectManager.CreateSelectData(); centreSD.Mark = 4;
+
+            var localFeature = (IFeature)centreLine;
+            bool selPath = localFeature.Select2(false, 4);
 
 
-
-            bool selProfile = compDoc.Extension.SelectByID2(
-                $"Profile_{pipe.Name}", "SKETCH", 0, 0, 0, false, 1, null, 0);
-            bool selPath = compDoc.Extension.SelectByID2(
-                pipe.Name, "SKETCH", 0, 0, 0, true, 4, null, 0);
-
-            if (!selProfile || !selPath)
+            if (!selPath)
             {
                 log?.Invoke($"[SketchBuilder] Sweep selection failed for {pipe.Name} " +
-                            $"(profile={selProfile}, path={selPath})");
-                return;
+                            $"(path={selPath})");
+                return null;
             }
 
-            var sweepFeature = (IFeature)compDoc.FeatureManager.InsertProtrusionSwept4(
-                false,  // Propagate
-                false,  // Alignment
-                0,      // TwistCtrlOption = follow path
-                false,  // KeepTangency
-                false,  // BAdvancedSmoothing
-                0,      // StartMatchingType = None
-                0,      // EndMatchingType = None
-                false,  // IsThinBody
-                0.0,    // Thickness1
-                0.0,    // Thickness2
-                0,      // ThinType
-                0,      // PathAlign
-                true,   // Merge
-                false,  // UseFeatScope
-                true,   // UseAutoSelect
-                0.0,    // TwistAngle
-                false,  // BMergeSmoothFaces
-                false,  // CircularProfile
-                0.0,    // CircularProfileDiameter
-                0       // Direction
-            );
+            var sweepData = (ISweepFeatureData)compDoc.FeatureManager
+                .CreateDefinition((int)swFeatureNameID_e.swFmSweep);
+
+            sweepData.TangentPropagation = false;
+            sweepData.AlignWithEndFaces = false;
+            sweepData.TwistControlType = 0;
+            sweepData.MaintainTangency = false;
+            sweepData.AdvancedSmoothing = false;
+            sweepData.StartTangencyType = 0;
+            sweepData.EndTangencyType = 0;
+            sweepData.ThinFeature = true;
+            sweepData.SetWallThickness(true, 1.5);
+            sweepData.SetWallThickness(false, 0.0);
+            sweepData.ThinWallType = 1;
+            sweepData.PathAlignmentType = 0;
+            sweepData.Merge = true;
+            sweepData.FeatureScope = false;
+            sweepData.AutoSelect = true;
+            sweepData.SetTwistAngle(0.0);
+            sweepData.MergeSmoothFaces = false;
+            sweepData.CircularProfile = true;
+            sweepData.CircularProfileDiameter = 41.3/1000;
+            sweepData.Direction = 0;
+
+            var sweepFeature = (IFeature)compDoc.FeatureManager.CreateFeature(sweepData);
 
             if (sweepFeature != null)
                 sweepFeature.Name = $"Pipe_{pipe.Name}";
             else
                 log?.Invoke($"[SketchBuilder] Swept extrude creation failed for {pipe.Name}");
+
+            return sweepFeature;
         }
     }
 }
