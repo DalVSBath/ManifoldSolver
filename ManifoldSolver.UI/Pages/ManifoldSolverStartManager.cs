@@ -355,7 +355,7 @@ namespace ManifoldSolver.UI.Pages
 
                 for (int i = 1; i <= total; i++)
                 {
-                    var obj = selMgr.GetSelectedObject6(1, mark);
+                    var obj = selMgr.GetSelectedObject6(i, mark);
 
                     if (obj is IComponent2 comp)
                     {

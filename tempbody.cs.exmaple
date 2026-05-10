@@ -1,0 +1,154 @@
+using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
+using System.Runtime.InteropServices;
+using System;
+using Microsoft.VisualBasic;
+ 
+namespace Macro1CSharp.csproj
+{
+    public partial class SolidWorksMacro
+    {
+ 
+ 
+        public void Main()
+        {
+            ModelDoc2 swModel = default(ModelDoc2);
+            ModelDocExtension swModelDocExt = default(ModelDocExtension);
+            FeatureManager swFeatureManager = default(FeatureManager);
+            SketchManager swSketchManager = default(SketchManager);
+            SelectionMgr swSelectionManager = default(SelectionMgr);
+            SketchSegment sketchSegment = default(SketchSegment);
+            Modeler swModeler = default(Modeler);
+            MathUtility swMath = default(MathUtility);
+            Body2 profileBody = default(Body2);
+            Body2 extrudedBody = default(Body2);
+            MathVector dirVector = default(MathVector);
+            Surface planeSurf = default(Surface);
+            Curve[] trimCurves = new Curve[4];
+            double[] points = new double[12];
+            object pointArray = null;
+            double halfWidth = 0;
+            double halfLength = 0;
+            double[] startArr = new double[3];
+            double[] endArr = new double[3];
+            double[] ptArr = new double[3];
+            double[] dirArr = new double[3];
+            double slotWidth = 0;
+            double slotLength = 0;
+            double slotDepth = 0;
+            bool slotThruAll = false;
+            bool status = false;
+ 
+            swModeler = (Modeler)swApp.GetModeler();
+            swMath = (MathUtility)swApp.GetMathUtility();
+            swModel = (ModelDoc2)swApp.NewDocument("C:\\ProgramData\\SolidWorks\\SolidWorks 2014\\templates\\Part.prtdot", 0, 0, 0);
+            swFeatureManager = (FeatureManager)swModel.FeatureManager;
+            swSketchManager = (SketchManager)swModel.SketchManager;
+            swModelDocExt = (ModelDocExtension)swModel.Extension;
+            swSelectionManager = (SelectionMgr)swModel.SelectionManager;
+ 
+            //Create and select extruded surface body
+            points[0] = -0.0720746414289124;
+            points[1] = -0.0283600245263074;
+            points[2] = 0;
+            points[3] = -0.0514715593755;
+            points[4] = -0.00345025084396866;
+            points[5] = 0;
+            points[6] = 0;
+            points[7] = 0;
+            points[8] = 0;
+            points[9] = 0.0872558597840225;
+            points[10] = 0.0521037067517796;
+            points[11] = 0;
+            pointArray = points;
+            sketchSegment = (SketchSegment)swSketchManager.CreateSpline((pointArray));
+            swSketchManager.InsertSketch(true);
+            swModel.ClearSelection2(true);
+            status = swModelDocExt.SelectByID2("Sketch1", "SKETCH", 0, 0, 0, false, 4, null, 0);
+            swFeatureManager.FeatureExtruRefSurface2(true, false, false, 0, 0, 0.0508, 0.00254, false, false, false,
+            false, 0.0174532925199433, 0.0174532925199433, false, false, false, false, false, false, false,
+            false);
+            swSelectionManager.EnableContourSelection = false;
+            status = swModelDocExt.SelectByID2("Surface-Extrude1", "BODYFEATURE", 0, 0, 0, false, 0, null, 0);
+ 
+            slotDepth = 0.01;
+            slotWidth = 0.04;
+            slotLength = 0.09;
+            slotThruAll = false;
+            halfWidth = slotWidth / 2;
+            halfLength = slotLength / 2;
+            ptArr[0] = 0.0;
+            ptArr[1] = 0.0;
+            ptArr[2] = 0.0;
+            dirArr[0] = 0.0;
+            dirArr[1] = 0.0;
+            dirArr[2] = 1.0;
+            startArr[0] = 1.0;
+            startArr[1] = 0.0;
+            startArr[2] = 0.0;
+            planeSurf = (Surface)swModeler.CreatePlanarSurface2((ptArr), (dirArr), (startArr));
+ 
+            ptArr[0] = -halfLength;
+            ptArr[1] = halfWidth;
+            ptArr[2] = 0.0;
+            dirArr[0] = 1.0;
+            dirArr[1] = 0.0;
+            dirArr[2] = 0.0;
+            trimCurves[0] = (Curve)swModeler.CreateLine((ptArr), (dirArr));
+            trimCurves[0] = (Curve)trimCurves[0].CreateTrimmedCurve2(-halfLength, halfWidth, 0.0, halfLength, halfWidth, 0.0);
+ 
+            ptArr[0] = halfLength;
+            ptArr[1] = 0.0;
+            ptArr[2] = 0.0;
+            startArr[0] = halfLength;
+            startArr[1] = halfWidth;
+            startArr[2] = 0.0;
+            endArr[0] = halfLength;
+            endArr[1] = -halfWidth;
+            endArr[2] = 0.0;
+            dirArr[0] = 0.0;
+            dirArr[1] = 0.0;
+            dirArr[2] = -1.0;
+            trimCurves[1] = (Curve)swModeler.CreateArc((ptArr), (dirArr), halfWidth, (startArr), (endArr));
+            trimCurves[1] = (Curve)trimCurves[1].CreateTrimmedCurve2(halfLength, halfWidth, 0.0, halfLength, -halfWidth, 0.0);
+ 
+            ptArr[0] = halfLength;
+            ptArr[1] = -halfWidth;
+            ptArr[2] = 0.0;
+            dirArr[0] = -1.0;
+            dirArr[1] = 0.0;
+            dirArr[2] = 0.0;
+            trimCurves[2] = (Curve)swModeler.CreateLine((ptArr), (dirArr));
+            trimCurves[2] = (Curve)trimCurves[2].CreateTrimmedCurve2(halfLength, -halfWidth, 0.0, -halfLength, -halfWidth, 0.0);
+ 
+            ptArr[0] = -halfLength;
+            ptArr[1] = 0.0;
+            ptArr[2] = 0.0;
+            startArr[0] = -halfLength;
+            startArr[1] = -halfWidth;
+            startArr[2] = 0.0;
+            endArr[0] = -halfLength;
+            endArr[1] = halfWidth;
+            endArr[2] = 0.0;
+            dirArr[0] = 0.0;
+            dirArr[1] = 0.0;
+            dirArr[2] = -1.0;
+            trimCurves[3] = (Curve)swModeler.CreateArc((ptArr), (dirArr), halfWidth, (startArr), (endArr));
+            trimCurves[3] = (Curve)trimCurves[3].CreateTrimmedCurve2(-halfLength, -halfWidth, 0.0, -halfLength, halfWidth, 0.0);
+            profileBody = (Body2)planeSurf.CreateTrimmedSheet((trimCurves));
+ 
+            dirArr[0] = 0.0;
+            dirArr[1] = 0.0;
+            dirArr[2] = -1.0;
+            dirVector = (MathVector)swMath.CreateVector((dirArr));
+            extrudedBody = (Body2)swModeler.CreateExtrudedBody(profileBody, dirVector, slotDepth);
+            extrudedBody.Display3(swModel, Information.RGB(1, 0, 0), (int)swTempBodySelectOptions_e.swTempBodySelectOptionNone); 
+ 
+        }
+ 
+        /// <summary>
+        ///  The SldWorks swApp variable is pre-assigned for you.
+        /// </summary>
+        public SldWorks swApp;
+    }
+}

@@ -6,6 +6,7 @@ using SolidWorks.Interop.swconst;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 #if DEBUG
 using System.IO;
@@ -29,6 +30,7 @@ namespace ManifoldSolver.Core
         private ManifoldGeoSolver? manifold;
         private AnalyserViewModel? _vm;
         List<PipeDef> Pipes;
+        private readonly List<Body2> _previewBodies = new List<Body2>();
 
 
         public readonly record struct PipeDef(string Name,
@@ -82,7 +84,7 @@ namespace ManifoldSolver.Core
                 TargetLength = (float)vm.TargetLength,
                 Diameter = (float)vm.PipeDiameter - 3f,
                 MaxBends = vm.MaxBends,
-                Verbose = false,
+                Verbose = true,
                 EqualizeLength = false,
                 MinStraightLength = (float)vm.MinStraight,
                 MinClearance = (float)vm.Clearance,
@@ -120,10 +122,19 @@ namespace ManifoldSolver.Core
             mainWindow.RunnerControl.StartButton.Click += (object o, RoutedEventArgs r) => RunFullSolver();
             mainWindow.DataControl.PreAnalyse.Click += PreAnalyse_Click;
             mainWindow.DataControl.BuildObstacles.Click += DoBuildObs;
+            mainWindow.Closed += (s, e) => ClearPreviewBodies();
 
             mainWindow.Show();
 
             
+        }
+
+        private void ClearPreviewBodies()
+        {
+            foreach (var body in _previewBodies)
+                Marshal.ReleaseComObject(body);
+            _previewBodies.Clear();
+            (_swApp.ActiveDoc as ModelDoc2)?.GraphicsRedraw2();
         }
 
         private void DoBuildObs(object o, RoutedEventArgs r)
@@ -143,6 +154,8 @@ namespace ManifoldSolver.Core
 
             mainWindow.RunnerControl.RunAsync(async (progress, ct) =>
             {
+                ClearPreviewBodies();
+
                 progress.Log($"Building obstacle conditions for {_vm.ConditionComponents.Length} component(s)...");
                 manifold.ClearSharedConditions();
 
@@ -155,8 +168,19 @@ namespace ManifoldSolver.Core
                     var condition = BuildOptimalObstacleCondition(comp, d => progress.Report(d), compBase, compSlice);
                     manifold.AddSharedCondition(condition);
                     progress.Log($"  [{condition.Type}] added for {comp.Name}");
+
+                    var preview = ((ObstacleCondition)condition).Area switch
+                    {
+                        IgnoreRect r     => ObstaclePreview.PreviewIgnoreRect(r, _swApp, _component),
+                        IgnoreCylinder c => ObstaclePreview.PreviewIgnoreCylinder(c, _swApp, _component),
+                        IgnoreSphere s   => ObstaclePreview.PreviewIgnoreSphere(s, _swApp, _component),
+                        _                => null
+                    };
+                    if (preview != null)
+                        _previewBodies.Add(preview);
                 }
 
+                ((ModelDoc2)_swApp.ActiveDoc).GraphicsRedraw2();
                 progress.Log("Obstacle conditions ready.");
 
                 const float WarnDist = 10f;
@@ -462,7 +486,7 @@ namespace ManifoldSolver.Core
             }
 
             float volume = (float)( Math.PI * radius * radius * height);
-            return (new IgnoreCylinder(cylCenter, axis, radius, (height/2f) + 5.0f), volume);
+            return (new IgnoreCylinder(cylCenter, axis, radius, height - 5.0f), volume);
         }
 
         public static class WindowOwnerHelper
