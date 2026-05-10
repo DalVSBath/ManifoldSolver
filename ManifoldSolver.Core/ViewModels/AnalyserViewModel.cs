@@ -15,22 +15,22 @@ namespace ManifoldSolver.Core.ViewModels
         public IComponent2? Component { get; set; }
         public IComponent2[]? ConditionComponents { get; set; }
 
-        public double TargetLength { get; set; } = 100;
+        public double TargetLength { get; set; } = 490;
 
-        private double _pipeDiameter = 0;
+        private double _pipeDiameter = 41.3;
         public double PipeDiameter
         {
             get => _pipeDiameter;
             set { _pipeDiameter = value; OnChanged(); }
         }
 
-        public double WallThickness { get; set; } = 0;
-        public double MinStraight { get; set; } = 0;
-        public double LengthTolerance { get; set; } = 0;
+        public double WallThickness { get; set; } = 1.5;
+        public double MinStraight { get; set; } = 4;
+        public double LengthTolerance { get; set; } = 10;
         public double Clearance { get; set; } = 0;
         public double MaxAngle { get; set; } = 180;
-        public int MaxBacktrack { get; set; } = 0;
-        public int MaxBends { get; set; } = 0;
+        public int MaxBacktrack { get; set; } = 5;
+        public int MaxBends { get; set; } = 5;
 
         public ObservableCollection<BendRadiusEntry> BendRadii { get; } = new ObservableCollection<BendRadiusEntry>
         {

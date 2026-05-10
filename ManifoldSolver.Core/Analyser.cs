@@ -19,6 +19,7 @@ using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Interop;
 using System.Windows.Shapes;
+using System.Threading;
 
 namespace ManifoldSolver.Core
 {
@@ -152,8 +153,9 @@ namespace ManifoldSolver.Core
                 return;
             }
 
-            mainWindow.RunnerControl.RunAsync(async (progress, ct) =>
+            mainWindow.RunAsync(async (progress, ct) =>
             {
+                await Task.Delay(0);
                 ClearPreviewBodies();
 
                 progress.Log($"Building obstacle conditions for {_vm.ConditionComponents.Length} component(s)...");
@@ -207,8 +209,9 @@ namespace ManifoldSolver.Core
                 manifold.AddPipe(p.Start, p.StartDir, p.End, p.EndDir);
             }
 
-            mainWindow.RunnerControl.RunAsync(async (progress, ct) =>
+            mainWindow.RunAsync(async (progress, ct) =>
             {
+                await Task.Delay(0);
                 progress.Log("Starting pre-detemination...");
 
                 manifold.OnUpdateLog += (object o, string msg) => progress.Log(msg);
@@ -270,20 +273,21 @@ namespace ManifoldSolver.Core
                     manifold.AddPipe(p.Start, p.StartDir, p.End, p.EndDir);
                 }
 
-                await mainWindow.RunnerControl.RunAsync(async (progress, ct) =>
+                await mainWindow.RunAsync(async (progress, ct) =>
                 {
                     progress.Log("Starting analysis...");
-
+                    await Task.Delay(0);
 
                     if (!solved)
                     {
                         manifold.OnUpdateLog += (object o, string msg) => progress.Log(msg);
-                        results = manifold.Solve();
+                        results = manifold.Solve(ct);
                         solved = true;
                     }
 
                     if (_component != null)
-                        SketchBuilder.DrawPipeSketches(_swApp, _component, Pipes, results, progress.Log);
+                        SketchBuilder.DrawPipeSketches(_swApp, _component, Pipes, results,
+                            (float)_vm!.PipeDiameter, (float)_vm.WallThickness, progress.Log);
 
                     progress.Log("Done.");
                 });

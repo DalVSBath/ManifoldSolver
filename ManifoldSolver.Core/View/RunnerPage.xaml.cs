@@ -21,32 +21,6 @@ namespace ManifoldSolver.Core.View
             InitializeComponent();
         }
 
-        /// <summary>
-        /// Runs the given work on a background thread, reporting progress to this dialog.
-        /// </summary>
-        public Task RunAsync(Func<IProgressReporter, CancellationToken, Task> work)
-        {
-            _isRunning = true;
-            StartButton.IsEnabled = false;
-            var reporter = new ProgressReporter(this, _pauseGate);
-            return Task.Run(async () =>
-            {
-                try
-                {
-                    await work(reporter, _cts.Token);
-                    Dispatcher.Invoke(() => OnCompleted(success: true));
-                }
-                catch (OperationCanceledException)
-                {
-                    Dispatcher.Invoke(() => OnCompleted(success: false, cancelled: true));
-                }
-                catch (Exception ex)
-                {
-                    Dispatcher.Invoke(() => OnCompleted(success: false, error: ex));
-                }
-            });
-        }
-
         internal void UpdateProgress(double percent, string status)
         {
             Dispatcher.Invoke(() =>
@@ -82,77 +56,8 @@ namespace ManifoldSolver.Core.View
             }
         }
 
-        private void StartButton_Click(object sender, RoutedEventArgs e)
-        {
-            AppendLog("Clicked");
-        } 
 
-        public event Action RunCompleted;
-        public bool IsRunning => _isRunning;
-
-        public void RequestCancel() => RequestCancel(closeAfter: false);
-
-        public void RequestCancelAndClose() => RequestCancel(closeAfter: true);
-
-        private void RequestCancel(bool closeAfter)
-        {
-            _closeAfterCancel = closeAfter;
-            _cts.Cancel();
-            _pauseGate.Set();
-            CancelButton.IsEnabled = false;
-            CancelButton.Content = "Cancelling...";
-        }
-
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-            => RequestCancel();
-
-        private void OnCompleted(bool success, bool cancelled = false, Exception error = null)
-        {
-            _isRunning = false;
-            StartButton.IsEnabled = true;
-            PauseButton.IsEnabled = false;
-
-            if (_closeAfterCancel)
-            {
-                RunCompleted?.Invoke();
-                return;
-            }
-
-            CancelButton.Content = "Close";
-            CancelButton.IsEnabled = true;
-            CancelButton.Click -= CancelButton_Click;
-            CancelButton.Click += (s, e) => RunCompleted?.Invoke();
-
-            if (cancelled) StatusText.Text = "Cancelled.";
-            else if (error != null) StatusText.Text = $"Error: {error.Message}";
-            else StatusText.Text = "Complete.";
-        }
-
-    }
-
-    public interface IProgressReporter
-    {
-        void Report(double percent, string status = null);
-        void Log(string line);
-        void ThrowIfCancelled();
-        void WaitIfPaused();
-    }
-
-    internal class ProgressReporter : IProgressReporter
-    {
-        private readonly RunnerPage _dialog;
-        private readonly ManualResetEventSlim _pauseGate;
-
-        public ProgressReporter(RunnerPage dialog, ManualResetEventSlim pauseGate)
-        {
-            _dialog = dialog;
-            _pauseGate = pauseGate;
-        }
-
-        public void Report(double percent, string status = null)
-            => _dialog.UpdateProgress(percent, status);
-        public void Log(string line) => _dialog.AppendLog(line);
-        public void ThrowIfCancelled() { /* worker uses CancellationToken directly */ }
-        public void WaitIfPaused() => _pauseGate.Wait();
+        private void CancelButton_Click(object sender, RoutedEventArgs e) { }
+        private void StartButton_Click(object sender, RoutedEventArgs e) { }
     }
 }

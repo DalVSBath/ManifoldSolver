@@ -129,7 +129,7 @@ namespace GeometrySolver.Solver
         /// primary solve fails, retries at lengths within ±<c>LengthToleranceFraction</c>
         /// of the original target in three equal steps per direction.
         /// </summary>
-        public SolverResult? Solve()
+        public SolverResult? Solve(CancellationToken? ct = null)
         {
             // Primary attempt at the exact target length
             var result = InnerSolve();
@@ -148,14 +148,16 @@ namespace GeometrySolver.Solver
             {
                 for (float delta = step; delta <= band + 0.01f; delta += step)
                 {
+                    ct?.ThrowIfCancellationRequested();
+
                     _targetLength = saved + delta;
                     if (Verbose) Console.WriteLine($"\n--- Retrying at {_targetLength:F1} mm (+{delta:F1}) ---");
-                    result = InnerSolve();
+                    result = InnerSolve(ct);
                     if (result != null) return result;
 
                     _targetLength = saved - delta;
                     if (Verbose) Console.WriteLine($"\n--- Retrying at {_targetLength:F1} mm (-{delta:F1}) ---");
-                    result = InnerSolve();
+                    result = InnerSolve(ct);
                     if (result != null) return result;
                 }
             }
@@ -170,10 +172,11 @@ namespace GeometrySolver.Solver
         /// Returns a <see cref="SolverResult"/> on first success, or <c>null</c> if all
         /// bend counts fail.  Does not modify <c>_targetLength</c>.
         /// </summary>
-        private SolverResult? InnerSolve()
+        private SolverResult? InnerSolve(CancellationToken? ct = null)
         {
             for (int nBends = 2; nBends <= MaxBends; nBends++)
             {
+                ct?.ThrowIfCancellationRequested();
                 if (Verbose) Console.WriteLine($"\n=== Trying {nBends}-bend solutions ===");
 
                 var segs = TrySolveBends(nBends);

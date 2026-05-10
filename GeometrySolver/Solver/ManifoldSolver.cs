@@ -242,8 +242,9 @@ namespace GeometrySolver.Solver
         /// pipe in registration order; entries are <c>null</c> when a pipe has no
         /// valid solution.
         /// </summary>
-        public List<SolverResult?> Solve()
+        public List<SolverResult?> Solve(CancellationToken? ct = null)
         {
+
             if (_pipes.Count == 0) return new List<SolverResult?>();
 
             // Progress bar: each pipe has 1 step (final solve) or 2 steps (min-length + final)
@@ -335,6 +336,7 @@ namespace GeometrySolver.Solver
 
             for (int i = 0; i < _pipes.Count; i++)
             {
+                ct?.ThrowIfCancellationRequested();
                 var p = _pipes[i];
                 Log($"\n{'═',0}══════════════════════════════════════════════");
                 Log($"  ManifoldSolver — Pipe {i + 1}/{_pipes.Count}");
