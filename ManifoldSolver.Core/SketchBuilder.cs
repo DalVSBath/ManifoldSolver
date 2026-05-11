@@ -4,6 +4,7 @@ using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Windows.Shapes;
 using static System.Windows.Forms.LinkLabel;
@@ -52,21 +53,32 @@ namespace ManifoldSolver.Core
             // After EditPart2 the active doc is the part; in a standalone part it already is.
             // Mirror the test handler: always drive sketches via swApp.ActiveDoc.
             compDoc = (IModelDoc2)swApp.ActiveDoc;
+            ISketch?[] pipeSketches = new ISketch[pipes.Count];
 
+            var sketchMgr = compDoc.SketchManager;
+            sketchMgr.AddToDB = true;
             for (int i = 0; i < results.Count && i < pipes.Count; i++)
             {
                 var result = results[i];
                 if (result == null) continue;
 
-                var pipeSketch = DrawPipeSketch(compDoc, mathUtil, worldToLocal, pipes[i], result, log);
-                ISketch? pipeProfile = null; // DrawPipeProfile(swApp, ParentDoc, compDoc, mathUtil, worldToLocal, pipes[i], pipeDiameter, wallThickness, log, component.Name2);
-                if (pipeSketch != null && pipeProfile != null)
-                {
-                    var pipeFeature = PerformSweep(ParentDoc, compDoc, pipeProfile, pipeSketch, pipes[i], log);
-                }
+                pipeSketches[i] = DrawPipeSketch(compDoc, mathUtil, worldToLocal, pipes[i], result, log);
+                //ISketch? pipeProfile = null; // DrawPipeProfile(swApp, ParentDoc, compDoc, mathUtil, worldToLocal, pipes[i], pipeDiameter, wallThickness, log, component.Name2);
+                
             }
+            sketchMgr.AddToDB = false;
 
             compDoc.ForceRebuild3(false);
+
+            //swApp.AllowFailedFeatureCreation(true);
+            for (int i = 0; i < pipeSketches.Length; i++)
+            {
+                if (pipeSketches[i] != null)
+                {
+                    var pipeFeature = PerformSweep(ParentDoc, compDoc, pipeSketches[i], pipes[i], pipeDiameter, wallThickness, log);
+                }
+            }
+            //swApp.AllowFailedFeatureCreation(false);
 
             if (swApp.ActiveDoc is IAssemblyDoc asmDoc2)
             {
@@ -182,7 +194,15 @@ namespace ManifoldSolver.Core
                     prevSeg = arc;
 
                     pos = arcEnd;
-                    curLocal = arcEndLocal;
+                    // Create3PointArc fits a circle through the three points and recomputes
+                    // the endpoint from the fitted centre+radius, which can differ slightly
+                    // from arcEndLocal. Read the actual stored coordinate back so the next
+                    // segment starts at exactly the same vertex.
+                    var (arcPtA, arcPtB) = GetEndpoints(arc);
+                    var fittedEnd = ClosestToLocal(arcPtA, arcPtB, arcEndLocal);
+                    curLocal = fittedEnd != null
+                        ? new[] { fittedEnd.X, fittedEnd.Y, fittedEnd.Z }
+                        : arcEndLocal;
                     dir = Vector3.Normalize(
                         (float)Math.Cos(fullAngle) * arcDir + (float)Math.Sin(fullAngle) * B);
                 }
@@ -221,56 +241,6 @@ namespace ManifoldSolver.Core
             log?.Invoke($"[SketchBuilder] Endpoint error: {endError:F3} mm");
 
             return sketch;
-        }
-
-        private static void ApplyCoincidentAndLog(
-            IModelDoc2 doc,
-            ISketchSegment prev,
-            ISketchSegment cur,
-            int segIdx,
-            string label,
-            Action<string>? log)
-        {
-            var (p1a, p1b) = GetEndpoints(prev);
-            var (p2a, p2b) = GetEndpoints(cur);
-            if (p1a == null || p1b == null || p2a == null || p2b == null)
-            {
-                log?.Invoke($"[SketchBuilder] WARNING seg {segIdx} {label}: null endpoint, skipping coincident constraint");
-                return;
-            }
-
-            // SolidWorks can reverse arc orientation, so don't assume GetEndPoint2/GetStartPoint2
-            // map to the junction. Instead find the closest pair of endpoints across the two segments.
-            static double SqDist(ISketchPoint a, ISketchPoint b) =>
-                (a.X-b.X)*(a.X-b.X) + (a.Y-b.Y)*(a.Y-b.Y) + (a.Z-b.Z)*(a.Z-b.Z);
-
-            double dAC = SqDist(p1a, p2a), dAD = SqDist(p1a, p2b);
-            double dBC = SqDist(p1b, p2a), dBD = SqDist(p1b, p2b);
-            double min = Math.Min(Math.Min(dAC, dAD), Math.Min(dBC, dBD));
-
-            ISketchPoint pt1 = (min == dAC || min == dAD) ? p1a : p1b;
-            ISketchPoint pt2 = (min == dAC || min == dBC) ? p2a : p2b;
-
-            double x1 = pt1.X, y1 = pt1.Y, z1 = pt1.Z;
-            double x2 = pt2.X, y2 = pt2.Y, z2 = pt2.Z;
-
-            doc.ClearSelection2(true);
-            var sel = pt1.Select4(false, null);
-            sel &= pt2.Select4(true, null);
-
-            doc.SketchAddConstraints("sgCOINCIDENT");
-            doc.ClearSelection2(true);
-
-            static double Dist(double dx, double dy, double dz) =>
-                Math.Sqrt(dx * dx + dy * dy + dz * dz) * 1000.0;
-
-            double moved1 = Dist(pt1.X - x1, pt1.Y - y1, pt1.Z - z1);
-            double moved2 = Dist(pt2.X - x2, pt2.Y - y2, pt2.Z - z2);
-            double maxMoved = Math.Max(moved1, moved2);
-            if (maxMoved > 0.1)
-                log?.Invoke(
-                    $"[SketchBuilder] WARNING seg {segIdx} {label}: junction moved {maxMoved:F3} mm " +
-                    $"applying coincident (pt1={moved1:F3} mm, pt2={moved2:F3} mm)");
         }
 
         private static (ISketchPoint? a, ISketchPoint? b) GetEndpoints(ISketchSegment seg) =>
@@ -417,8 +387,10 @@ namespace ManifoldSolver.Core
         public static IFeature? PerformSweep(
             IModelDoc2 parentDoc,
             IModelDoc2 compDoc,
-            ISketch profileSketch, ISketch centreLine,
+            ISketch centreLine,
             Analyser.PipeDef pipe,
+            float pipeDiameter,
+            float wallThickness,
             Action<string>? log = null)
         {
 
@@ -426,7 +398,7 @@ namespace ManifoldSolver.Core
             parentDoc.ClearSelection2(true);
             partDoc.ClearSelection2(true);
 
-            //var selectManager = partDoc.SelectionManager;
+            var selectManager = (SelectionMgr)partDoc.SelectionManager;
 
             //var profileSD = selectManager.Crea(); profileSD.Mark = 1;
             //var centreSD = selectManager.CreateSelectData(); centreSD.Mark = 4;
@@ -434,6 +406,10 @@ namespace ManifoldSolver.Core
             var localFeature = (IFeature)centreLine;
             bool selPath = localFeature.Select2(false, 4);
 
+            var count = selectManager.GetSelectedObjectCount2(-1);
+
+            compDoc.ShowFeatureErrorDialog = true;
+            partDoc.ShowFeatureErrorDialog = true;
 
             if (!selPath)
             {
@@ -442,20 +418,28 @@ namespace ManifoldSolver.Core
                 return null;
             }
 
-            var sweepData = (ISweepFeatureData)compDoc.FeatureManager
+            log?.Invoke($"[SketchBuilder] Sweep: selection count={count}, selPath={selPath}");
+
+            var sweepData = (ISweepFeatureData)partDoc.FeatureManager
                 .CreateDefinition((int)swFeatureNameID_e.swFmSweep);
+
+            if (sweepData == null)
+            {
+                log?.Invoke($"[SketchBuilder] Sweep: CreateDefinition returned null for {pipe.Name}");
+                return null;
+            }
 
             sweepData.TangentPropagation = false;
             sweepData.AlignWithEndFaces = false;
-            sweepData.TwistControlType = 0;
+            sweepData.TwistControlType = (int)swTwistControlType_e.swTwistControlFollowPath;
             sweepData.MaintainTangency = false;
             sweepData.AdvancedSmoothing = false;
             sweepData.StartTangencyType = 0;
             sweepData.EndTangencyType = 0;
             sweepData.ThinFeature = true;
-            sweepData.SetWallThickness(true, 1.5);
+            sweepData.SetWallThickness(true, wallThickness/1000.0);
             sweepData.SetWallThickness(false, 0.0);
-            sweepData.ThinWallType = 1;
+            sweepData.ThinWallType = (int)swThinWallType_e.swThinWallOppDirection;
             sweepData.PathAlignmentType = 0;
             sweepData.Merge = true;
             sweepData.FeatureScope = false;
@@ -463,15 +447,29 @@ namespace ManifoldSolver.Core
             sweepData.SetTwistAngle(0.0);
             sweepData.MergeSmoothFaces = false;
             sweepData.CircularProfile = true;
-            sweepData.CircularProfileDiameter = 41.3/1000;
+            sweepData.CircularProfileDiameter = pipeDiameter / 1000.0;
             sweepData.Direction = 0;
 
-            var sweepFeature = (IFeature)compDoc.FeatureManager.CreateFeature(sweepData);
+            log?.Invoke($"[SketchBuilder] Sweep: CircularProfile={sweepData.CircularProfile}, " +
+                        $"Diameter={sweepData.CircularProfileDiameter * 1000:F2} mm, " +
+                        $"ThinFeature={sweepData.ThinFeature}, " +
+                        $"AutoSelect={sweepData.AutoSelect}");
+
+            var sweepFeature = (IFeature)partDoc.FeatureManager.CreateFeature(sweepData);
 
             if (sweepFeature != null)
+            {
                 sweepFeature.Name = $"Pipe_{pipe.Name}";
+                log?.Invoke($"[SketchBuilder] Sweep: created '{sweepFeature.Name}' for {pipe.Name}");
+            }
             else
-                log?.Invoke($"[SketchBuilder] Swept extrude creation failed for {pipe.Name}");
+            {
+                int errCount = partDoc.FeatureManager.GetCreateFeatureErrors(out object msgs, out string featureTypeName);
+                var errArray = msgs as int[] ?? Array.Empty<int>();
+                var errList = string.Join(", ", errArray.Take(errCount).Select(e => $"0x{e:X}"));
+                log?.Invoke($"[SketchBuilder] Sweep: CreateFeature failed for {pipe.Name} — " +
+                            $"type={featureTypeName}, errors({errCount})=[{errList}]");
+            }
 
             return sweepFeature;
         }
