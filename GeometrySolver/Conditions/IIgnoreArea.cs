@@ -18,6 +18,7 @@ namespace GeometrySolver.Conditions
     {
         Sphere,
         Cylinder,
-        Cube
+        Cube,
+        TaperedCylinder,
     }
 }

@@ -132,7 +132,7 @@ namespace GeometrySolver.Solver
         public SolverResult? Solve(CancellationToken? ct = null)
         {
             // Primary attempt at the exact target length
-            var result = InnerSolve();
+            var result = InnerSolve(ct);
             if (result != null || LengthToleranceFraction <= 0f)
             {
                 if (result == null && Verbose)
@@ -179,7 +179,7 @@ namespace GeometrySolver.Solver
                 ct?.ThrowIfCancellationRequested();
                 if (Verbose) Console.WriteLine($"\n=== Trying {nBends}-bend solutions ===");
 
-                var segs = TrySolveBends(nBends);
+                var segs = TrySolveBends(nBends, ct);
                 if (segs != null)
                 {
                     var   sim       = PathSimulator.Simulate(_startPoint, _startDir, segs);
@@ -303,7 +303,7 @@ namespace GeometrySolver.Solver
         // TrySolveBends wraps it to return only the single best result (original API).
 
         private List<(List<BendSegment> Segs, float Score)> TrySolveBendsAll(
-            int nBends, int maxCollect)
+            int nBends, int maxCollect, CancellationToken? token = null)
         {
             var combos  = GenerateRadiusCombinations(nBends);
             int total   = combos.Count;
@@ -362,7 +362,7 @@ namespace GeometrySolver.Solver
                         new ParallelOptions { CancellationToken = cts.Token },
                         (radii, loopState) =>
                         {
-                            if (cts.IsCancellationRequested) return;
+                            if (cts.IsCancellationRequested || (token?.IsCancellationRequested ?? false)) return;
 
                             float minArc = 0f;
                             foreach (float r in radii) minArc += r * 0.02f;
@@ -389,9 +389,9 @@ namespace GeometrySolver.Solver
             return results;
         }
 
-        private List<BendSegment>? TrySolveBends(int nBends)
+        private List<BendSegment>? TrySolveBends(int nBends, CancellationToken? ct = null)
         {
-            var all = TrySolveBendsAll(nBends, MaxSolutionsToRank);
+            var all = TrySolveBendsAll(nBends, MaxSolutionsToRank, ct);
             if (Verbose && all.Count > 0)
                 Console.WriteLine($"    Best solution selected (score={all[0].Score:F1}).");
             return all.Count > 0 ? all[0].Segs : null;

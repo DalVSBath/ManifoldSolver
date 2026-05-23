@@ -230,9 +230,11 @@ namespace GeometrySolver.Solver
             return naturalResults;
         }
 
-        public void ClearPipes()
+        public void ClearPipes(bool clearPipeConditions = true)
         {
             _pipes.Clear();
+            if (clearPipeConditions)
+                _pipeConditions.Clear();
         }
 
         // ── Main solve ────────────────────────────────────────────────────────

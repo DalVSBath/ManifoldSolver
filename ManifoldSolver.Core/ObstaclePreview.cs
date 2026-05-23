@@ -1,3 +1,5 @@
+using System;
+using System.Numerics;
 using GeometrySolver.Conditions;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -8,6 +10,8 @@ namespace ManifoldSolver.Core
     {
         // Orange (R=255, G=165, B=0) in SolidWorks' BGR-int format
         private const int PreviewColor = 255 + (165 << 8);
+        // Green (R=0, G=200, B=80) in SolidWorks' BGR-int format
+        private const int AntiPreviewColor = (200 << 8) + (80 << 16);
 
         public static Body2? PreviewIgnoreRect(IgnoreRect rect, ISldWorks swApp, object component)
         {
@@ -51,6 +55,22 @@ namespace ManifoldSolver.Core
             return body;
         }
 
+        public static Body2? PreviewAntiCylinder(IgnoreCylinder cyl, ISldWorks swApp, object component)
+        {
+            var modeler = (IModeler)swApp.GetModeler();
+            var faceCentreMm = cyl.Centre - cyl.Axis * (cyl.Height * 0.5f);
+            double[] cylDimArray =
+            {
+                faceCentreMm.X / 1000.0, faceCentreMm.Y / 1000.0, faceCentreMm.Z / 1000.0,
+                cyl.Axis.X, cyl.Axis.Y, cyl.Axis.Z,
+                cyl.Radius / 1000.0,
+                cyl.Height / 1000.0
+            };
+            var body = modeler.CreateBodyFromCyl(cylDimArray) as Body2;
+            DisplayAntiTransparent(body, component);
+            return body;
+        }
+
         public static Body2? PreviewIgnoreSphere(IgnoreSphere sphere, ISldWorks swApp, object component)
         {
             // IModeler has no direct sphere primitive and revolve requires FeatureManager
@@ -58,25 +78,69 @@ namespace ManifoldSolver.Core
             return null;
         }
 
+        /// <summary>
+        /// Previews a tapered cylinder (frustum) as two concentric transparent cylinders —
+        /// one at each radius — so the taper envelope is visible through the transparency.
+        /// IModeler has no frustum primitive, so this is the closest available approximation.
+        /// </summary>
+        public static (Body2? outer, Body2? inner) PreviewIgnoreTaperedCylinder(
+            IgnoreTaperedCylinder f, ISldWorks swApp, object component, bool anti = false)
+        {
+            var modeler = (IModeler)swApp.GetModeler();
+            var faceCentreMm = f.Centre - f.Axis * (f.Height * 0.5f);
+
+            Body2? MakeCyl(float radiusMm, Vector3 faceCemtre)
+            {
+                double[] d =
+                {
+                    faceCemtre.X / 1000.0, faceCemtre.Y / 1000.0, faceCemtre.Z / 1000.0,
+                    f.Axis.X, f.Axis.Y, f.Axis.Z,
+                    radiusMm / 1000.0,
+                    f.Height / 2000.0
+                };
+                return modeler.CreateBodyFromCyl(d) as Body2;
+            }
+
+
+
+            var outer = MakeCyl(Math.Max(f.RadiusBase, f.RadiusTop), f.RadiusBase > f.RadiusTop ? faceCentreMm : f.Centre);
+            var inner = MakeCyl(Math.Min(f.RadiusBase, f.RadiusTop), f.RadiusBase < f.RadiusTop ? faceCentreMm : f.Centre);
+            if (anti)
+            {
+                DisplayAntiTransparent(outer, component);
+                DisplayAntiTransparent(inner, component);
+            }
+            else
+            {
+                DisplayTransparent(outer, component);
+                DisplayTransparent(inner, component);
+            }
+            return (outer, inner);
+        }
+
         private static void DisplayTransparent(Body2? body, object component)
         {
             if (body == null) return;
-
             body.Display3(component, PreviewColor, (int)swTempBodySelectOptions_e.swTempBodySelectOptionNone);
-
-            // MaterialPropertyValues2: [R, G, B, Ambient, Diffuse, Specular, Shininess, Transparency, Emission]
-            // all values 0–1; Transparency 0=opaque, 1=fully transparent
             body.MaterialPropertyValues2 = new double[]
             {
-                1.0,          // R
+                1.0,           // R
                 165.0 / 255.0, // G
-                0.0,          // B
-                0.4,          // Ambient
-                0.8,          // Diffuse
-                0.3,          // Specular
-                0.3,          // Shininess
-                0.6,          // Transparency (60%)
-                0.0           // Emission
+                0.0,           // B
+                0.4, 0.8, 0.3, 0.3, 0.6, 0.0
+            };
+        }
+
+        private static void DisplayAntiTransparent(Body2? body, object component)
+        {
+            if (body == null) return;
+            body.Display3(component, AntiPreviewColor, (int)swTempBodySelectOptions_e.swTempBodySelectOptionNone);
+            body.MaterialPropertyValues2 = new double[]
+            {
+                0.0,           // R
+                200.0 / 255.0, // G
+                80.0 / 255.0,  // B
+                0.4, 0.8, 0.3, 0.3, 0.6, 0.0
             };
         }
     }

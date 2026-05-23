@@ -76,6 +76,8 @@ namespace ManifoldSolver.Core
                 component = vm.Component;
             _component = component;
 
+            vm.PropertyChanged += Vm_PropertyChanged;
+
             mainWindow = new MainWindow(vm);
             WindowOwnerHelper.OwnToSolidWorks(mainWindow, _swApp);
 
@@ -130,6 +132,11 @@ namespace ManifoldSolver.Core
             
         }
 
+        private void Vm_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            solved = false;
+        }
+
         private void ClearPreviewBodies()
         {
             foreach (var body in _previewBodies)
@@ -171,15 +178,25 @@ namespace ManifoldSolver.Core
                     manifold.AddSharedCondition(condition);
                     progress.Log($"  [{condition.Type}] added for {comp.Name}");
 
-                    var preview = ((ObstacleCondition)condition).Area switch
+                    var area = ((ObstacleCondition)condition).Area;
+                    if (area is IgnoreTaperedCylinder ftap)
                     {
-                        IgnoreRect r     => ObstaclePreview.PreviewIgnoreRect(r, _swApp, _component),
-                        IgnoreCylinder c => ObstaclePreview.PreviewIgnoreCylinder(c, _swApp, _component),
-                        IgnoreSphere s   => ObstaclePreview.PreviewIgnoreSphere(s, _swApp, _component),
-                        _                => null
-                    };
-                    if (preview != null)
-                        _previewBodies.Add(preview);
+                        var (outer, inner) = ObstaclePreview.PreviewIgnoreTaperedCylinder(ftap, _swApp, _component);
+                        if (outer != null) _previewBodies.Add(outer);
+                        if (inner != null) _previewBodies.Add(inner);
+                    }
+                    else
+                    {
+                        var preview = area switch
+                        {
+                            IgnoreRect r     => ObstaclePreview.PreviewIgnoreRect(r, _swApp, _component),
+                            IgnoreCylinder c => ObstaclePreview.PreviewIgnoreCylinder(c, _swApp, _component),
+                            IgnoreSphere s   => ObstaclePreview.PreviewIgnoreSphere(s, _swApp, _component),
+                            _                => null
+                        };
+                        if (preview != null)
+                            _previewBodies.Add(preview);
+                    }
                 }
 
                 ((ModelDoc2)_swApp.ActiveDoc).GraphicsRedraw2();
@@ -197,6 +214,43 @@ namespace ManifoldSolver.Core
                         if (de < WarnDist)
                             progress.Log($"  [WARN] Obstacle [{cond.Type}] is {de:F1} mm from {pipe.Name} end");
                     }
+                }
+
+                // Build anti-ignore-cylinders: one per pipe face (start + end).
+                // Each cylinder extends 2.5mm into the manifold plane and 20mm outward,
+                // with a radius 1mm larger than the pipe radius (2mm wider in diameter).
+                // Any path point inside both an obstacle and an anti-cylinder is exempt
+                // from the obstacle penalty, allowing the pipe stub to enter the body.
+                float antiRadius = (float)_vm.PipeDiameter / 2f + 1f;
+                const float hInto = 2.5f, hOut = 30f;
+                float hTotal = hInto + hOut;       // 22.5 mm
+                float offset  = (hOut - hInto) / 2f; // 8.75 mm offset from face to cylinder centre
+
+                var antiCylinders = new List<IgnoreTaperedCylinder>();
+                foreach (var pipe in Pipes)
+                {
+                    // Start face: StartDir points outward from the face into routing space
+                    antiCylinders.Add(new IgnoreTaperedCylinder(
+                        pipe.Start + pipe.StartDir * offset,
+                        pipe.StartDir, antiRadius, antiRadius + 15f, hTotal));
+
+                    // End face: EndDir points INTO the face, so outward = -EndDir
+                    antiCylinders.Add(new IgnoreTaperedCylinder(
+                        pipe.End - pipe.EndDir * offset,
+                        -pipe.EndDir, antiRadius, antiRadius + 15f, hTotal));
+                }
+
+                foreach (var cond in manifold.SharedConditions.OfType<ObstacleCondition>())
+                    foreach (var anti in antiCylinders)
+                        cond.AntiObstacles.Add(anti);
+
+                progress.Log($"  [Anti-cylinders] {antiCylinders.Count} anti-ignore-cylinders attached to all obstacles.");
+
+                foreach (var anti in antiCylinders)
+                {
+                    var (inner, outer) = ObstaclePreview.PreviewIgnoreTaperedCylinder(anti, _swApp, _component, true);
+                    if (inner != null) _previewBodies.Add(inner);
+                    if (outer != null) _previewBodies.Add(outer);
                 }
             });
         }
@@ -256,7 +310,7 @@ namespace ManifoldSolver.Core
                 // Re-read VM settings so changes made in OptionsPage take effect
                 manifold.BendRadii                = _vm!.BendRadii.Select(r => r.Resolve(_vm.PipeDiameter)).ToArray();
                 manifold.TargetLength             = (float)_vm.TargetLength;
-                manifold.Diameter                 = (float)_vm.PipeDiameter - 2f;
+                manifold.Diameter                 = (float)_vm.PipeDiameter - 1f;
                 manifold.MaxBends                 = _vm.MaxBends;
                 manifold.MinStraightLength        = (float)_vm.MinStraight;
                 manifold.MinClearance             = (float)_vm.Clearance;
@@ -366,11 +420,18 @@ namespace ManifoldSolver.Core
                 if (vol < bestCylVol) { bestCyl = cyl; bestCylVol = vol; }
             }
 
-            IIgnoreArea winner;
-            if (aabbVol <= sphereVol && aabbVol <= bestCylVol) winner = aabb;
-            else if (sphereVol <= bestCylVol)                  winner = sphere;
-            else                                               winner = bestCyl;
+            IIgnoreArea bestFrustum = null; float bestFrustumVol = float.MaxValue;
+            foreach (var axis in cylAxes)
+            {
+                var (fr, vol) = TightFrustum(vertices, axis);
+                if (fr != null && vol < bestFrustumVol) { bestFrustum = fr; bestFrustumVol = vol; }
+            }
 
+            IIgnoreArea winner;
+            if      (aabbVol <= sphereVol && aabbVol <= bestCylVol && aabbVol <= bestFrustumVol) winner = aabb;
+            else if (sphereVol <= bestCylVol && sphereVol <= bestFrustumVol)                     winner = sphere;
+            else if (bestCylVol <= bestFrustumVol)                                               winner = bestCyl;
+            else                                                                                  winner = bestFrustum;
 
             return new ObstacleCondition(winner);
         }
@@ -491,6 +552,79 @@ namespace ManifoldSolver.Core
 
             float volume = (float)( Math.PI * radius * radius * height);
             return (new IgnoreCylinder(cylCenter, axis, radius, height - 5.0f), volume);
+        }
+
+        /// <summary>
+        /// Fits the tightest frustum (tapered cylinder) to <paramref name="vertices"/> along
+        /// the given <paramref name="axis"/>. Searches 21 candidate linear tapers (slopes) and
+        /// returns the one whose frustum volume is smallest. O(21 × N) per call.
+        /// </summary>
+        private static (IIgnoreArea frustum, float volume) TightFrustum(List<Vector3> vertices, Vector3 axis)
+        {
+            if (vertices.Count < 2) return (null, float.MaxValue);
+
+            // Same centre computation as TightCylinder: perpendicular centroid + axial midpoint.
+            float minProj = float.MaxValue, maxProj = float.MinValue;
+            var perpCentroid = Vector3.Zero;
+            foreach (var v in vertices)
+            {
+                float proj = Vector3.Dot(v, axis);
+                if (proj < minProj) minProj = proj;
+                if (proj > maxProj) maxProj = proj;
+                perpCentroid += v - proj * axis;
+            }
+            perpCentroid /= vertices.Count;
+
+            float height = maxProj - minProj;
+            if (height < 1e-6f) return (null, float.MaxValue);
+
+            var centre = perpCentroid + axis * ((minProj + maxProj) * 0.5f);
+            float hh   = height * 0.5f;
+
+            // Project all vertices to (t, r): axial position and perpendicular distance.
+            // t ∈ [-hh, +hh]; base face is at t = -hh, top face at t = +hh.
+            int n = vertices.Count;
+            var tArr = new float[n];
+            var rArr = new float[n];
+            float maxR = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                var delta = vertices[i] - centre;
+                tArr[i] = Vector3.Dot(delta, axis);
+                rArr[i] = (float)Math.Sqrt(Math.Max(0f, delta.LengthSquared() - tArr[i] * tArr[i]));
+                if (rArr[i] > maxR) maxR = rArr[i];
+            }
+
+            // For frustum radius r(t) = rBase + slope*(t + hh), containing all (t_i, r_i):
+            //   rBase ≥ r_i - slope*(t_i + hh)  for all i
+            //   → rBase = max(0, max_i(r_i - slope*(t_i + hh)))
+            //   rTop = rBase + slope*height
+            // Search 21 uniformly spaced slopes in [-maxR/height, +maxR/height].
+            const int SlopeSteps = 21;
+            float slopeMax = maxR / height;
+
+            float bestVol = float.MaxValue;
+            float bestRBase = maxR, bestRTop = maxR; // fallback = cylinder
+
+            for (int si = 0; si < SlopeSteps; si++)
+            {
+                float slope = -slopeMax + si * (2f * slopeMax / (SlopeSteps - 1));
+
+                float rBase = 0f;
+                for (int i = 0; i < n; i++)
+                    rBase = Math.Max(rBase, rArr[i] - slope * (tArr[i] + hh));
+                rBase = Math.Max(0f, rBase);
+
+                float rTop = rBase + slope * height;
+                if (rTop < 0f) continue;
+
+                float vol = (float)(Math.PI * height / 3.0 * (rBase * rBase + rBase * rTop + rTop * rTop));
+                if (vol < bestVol) { bestVol = vol; bestRBase = rBase; bestRTop = rTop; }
+            }
+
+            if (bestVol == float.MaxValue) return (null, float.MaxValue);
+
+            return (new IgnoreTaperedCylinder(centre, axis, bestRBase, bestRTop, height - 5.0f), bestVol);
         }
 
         public static class WindowOwnerHelper

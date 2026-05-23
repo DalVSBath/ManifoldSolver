@@ -34,6 +34,22 @@ namespace GeometrySolver.Conditions
         }
 
         /// <summary>
+        /// Regions where obstacle penalties are cancelled. A path point that falls
+        /// inside both an obstacle and any area in this list is treated as exempt —
+        /// no penalty is applied and <see cref="IsSatisfied"/> does not reject it.
+        /// Used to carve out the pipe-face zone where the pipe stub is expected to
+        /// pass through the manifold body.
+        /// </summary>
+        public List<IIgnoreArea> AntiObstacles { get; } = new();
+
+        private bool IsAntiExempted(Vector3 point)
+        {
+            foreach (var anti in AntiObstacles)
+                if (anti.InArea(point)) return true;
+            return false;
+        }
+
+        /// <summary>
         /// Sampled centreline points within this distance (mm) of either the pipe
         /// start or end position are excluded from the obstacle test.
         ///
@@ -51,10 +67,11 @@ namespace GeometrySolver.Conditions
         /// <inheritdoc />
         public ConditionType Type => _area.AreaType switch
         {
-            AreaType.Sphere   => ConditionType.ObstacleSphere,
-            AreaType.Cylinder => ConditionType.ObstacleCylinder,
-            AreaType.Cube     => ConditionType.ObstacleBox,
-            _                 => ConditionType.Custom,
+            AreaType.Sphere          => ConditionType.ObstacleSphere,
+            AreaType.Cylinder        => ConditionType.ObstacleCylinder,
+            AreaType.Cube            => ConditionType.ObstacleBox,
+            AreaType.TaperedCylinder => ConditionType.ObstacleTaperedCylinder,
+            _                        => ConditionType.Custom,
         };
 
         /// <inheritdoc />
@@ -78,7 +95,8 @@ namespace GeometrySolver.Conditions
                     if (Vector3.DistanceSquared(point, startPt) <= excSq) continue;
                     if (Vector3.DistanceSquared(point, endPt)   <= excSq) continue;
                 }
-                if (_area.InArea(point)) return false;
+                if (AntiObstacles.Count > 0 && IsAntiExempted(point)) continue;
+                if (_area.DistanceTo(point) < pipeDiameter * 0.5f) return false;
             }
             return true;
         }
@@ -99,7 +117,7 @@ namespace GeometrySolver.Conditions
             // If the two boxes do not overlap, no path point can be inside the obstacle —
             // return 0 without iterating any points.  This is a constant-time rejection
             // that eliminates all per-point work for paths far from the obstacle.
-            if (!PathOverlapsObstacleAABB(pathPoints)) return 0;
+            if (!PathOverlapsObstacleAABB(pathPoints, pipeDiameter)) return 0;
 
             float excSq = ExcludeEndMm * ExcludeEndMm;
             Vector3 startPt = pathPoints[0];
@@ -113,14 +131,15 @@ namespace GeometrySolver.Conditions
                     if (Vector3.DistanceSquared(point, startPt) <= excSq) continue;
                     if (Vector3.DistanceSquared(point, endPt)   <= excSq) continue;
                 }
-                if (_area.InArea(point)) penalty += 1e6;
+                if (AntiObstacles.Count > 0 && IsAntiExempted(point)) continue;
+                if (_area.DistanceTo(point) < pipeDiameter * 0.5f) penalty += 1e8;
             }
             return penalty;
         }
 
         // ── P2.1: AABB pre-filter ─────────────────────────────────────────────
 
-        private bool PathOverlapsObstacleAABB(IReadOnlyList<Vector3> pathPoints)
+        private bool PathOverlapsObstacleAABB(IReadOnlyList<Vector3> pathPoints, float pipeDiameter)
         {
             // Build the path AABB
             float pMinX = float.MaxValue, pMinY = float.MaxValue, pMinZ = float.MaxValue;
@@ -132,15 +151,18 @@ namespace GeometrySolver.Conditions
                 if (pt.Z < pMinZ) pMinZ = pt.Z; if (pt.Z > pMaxZ) pMaxZ = pt.Z;
             }
 
-            // Compute a conservative obstacle AABB from the IIgnoreArea type
+            // Compute a conservative obstacle AABB from the IIgnoreArea type,
+            // then expand it by the pipe radius so paths that approach within
+            // pipeDiameter/2 of the obstacle surface are not prematurely rejected.
             float oMinX, oMinY, oMinZ, oMaxX, oMaxY, oMaxZ;
             ComputeObstacleAABB(out oMinX, out oMinY, out oMinZ,
                                  out oMaxX, out oMaxY, out oMaxZ);
+            float r = pipeDiameter * 0.5f;
 
             // Separating-axis test: if separated on any axis, no overlap
-            return !(pMaxX < oMinX || pMinX > oMaxX ||
-                     pMaxY < oMinY || pMinY > oMaxY ||
-                     pMaxZ < oMinZ || pMinZ > oMaxZ);
+            return !(pMaxX < oMinX - r || pMinX > oMaxX + r ||
+                     pMaxY < oMinY - r || pMinY > oMaxY + r ||
+                     pMaxZ < oMinZ - r || pMinZ > oMaxZ + r);
         }
 
         private void ComputeObstacleAABB(
@@ -175,6 +197,18 @@ namespace GeometrySolver.Conditions
                     var  c = cyl.Centre;
                     float r = cyl.Radius, hh = cyl.Height * 0.5f;
                     float ext = r + hh;
+                    minX = c.X - ext; maxX = c.X + ext;
+                    minY = c.Y - ext; maxY = c.Y + ext;
+                    minZ = c.Z - ext; maxZ = c.Z + ext;
+                    return;
+                }
+                case IgnoreTaperedCylinder f:
+                {
+                    // Conservative AABB: use max radius across both faces
+                    float r = Math.Max(f.RadiusBase, f.RadiusTop);
+                    float hh = f.Height * 0.5f;
+                    float ext = r + hh;
+                    var c = f.Centre;
                     minX = c.X - ext; maxX = c.X + ext;
                     minY = c.Y - ext; maxY = c.Y + ext;
                     minZ = c.Z - ext; maxZ = c.Z + ext;

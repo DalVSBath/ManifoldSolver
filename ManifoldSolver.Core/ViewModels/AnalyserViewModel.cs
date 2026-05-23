@@ -15,7 +15,12 @@ namespace ManifoldSolver.Core.ViewModels
         public IComponent2? Component { get; set; }
         public IComponent2[]? ConditionComponents { get; set; }
 
-        public double TargetLength { get; set; } = 490;
+        private double _targetLength = 490;
+        public double TargetLength
+        {
+            get => _targetLength;
+            set { _targetLength = value; OnChanged(); }
+        }
 
         private double _pipeDiameter = 41.3;
         public double PipeDiameter
@@ -24,13 +29,54 @@ namespace ManifoldSolver.Core.ViewModels
             set { _pipeDiameter = value; OnChanged(); }
         }
 
-        public double WallThickness { get; set; } = 1.5;
-        public double MinStraight { get; set; } = 4;
-        public double LengthTolerance { get; set; } = 10;
-        public double Clearance { get; set; } = 0;
-        public double MaxAngle { get; set; } = 180;
-        public int MaxBacktrack { get; set; } = 5;
-        public int MaxBends { get; set; } = 5;
+        private double _wallThickness = 1.5;
+        public double WallThickness
+        {
+            get => _wallThickness;
+            set { _wallThickness = value; OnChanged(); }
+        }
+
+        private double _minStraight = 4;
+        public double MinStraight
+        {
+            get => _minStraight;
+            set { _minStraight = value; OnChanged(); }
+        }
+
+        private double _lengthTolerance = 10;
+        public double LengthTolerance
+        {
+            get => _lengthTolerance;
+            set { _lengthTolerance = value; OnChanged(); }
+        }
+
+        private double _clearance = 0;
+        public double Clearance
+        {
+            get => _clearance;
+            set { _clearance = value; OnChanged(); }
+        }
+
+        private double _maxAngle = 180;
+        public double MaxAngle
+        {
+            get => _maxAngle;
+            set { _maxAngle = value; OnChanged(); }
+        }
+
+        private int _maxBacktrack = 5;
+        public int MaxBacktrack
+        {
+            get => _maxBacktrack;
+            set { _maxBacktrack = value; OnChanged(); }
+        }
+
+        private int _maxBends = 5;
+        public int MaxBends
+        {
+            get => _maxBends;
+            set { _maxBends = value; OnChanged(); }
+        }
 
         public ObservableCollection<BendRadiusEntry> BendRadii { get; } = new ObservableCollection<BendRadiusEntry>
         {

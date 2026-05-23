@@ -11,6 +11,7 @@ namespace GeometrySolver.Conditions
         ObstacleSphere,
         ObstacleBox,
         ObstacleCylinder,
+        ObstacleTaperedCylinder,
         PipeClearance,
         MinimumStraight,
         MaxBendAngle,
