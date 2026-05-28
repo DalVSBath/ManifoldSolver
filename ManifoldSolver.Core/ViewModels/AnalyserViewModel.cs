@@ -71,6 +71,13 @@ namespace ManifoldSolver.Core.ViewModels
             set { _maxBacktrack = value; OnChanged(); }
         }
 
+        private int _maxPipeBacktrack = 2;
+        public int MaxPipeBacktrack
+        {
+            get => _maxPipeBacktrack;
+            set { _maxPipeBacktrack = value; OnChanged(); }
+        }
+
         private int _maxBends = 5;
         public int MaxBends
         {

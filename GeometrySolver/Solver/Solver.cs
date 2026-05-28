@@ -28,6 +28,13 @@ namespace GeometrySolver.Solver
         public bool Verbose { get; set; } = true;
 
         /// <summary>
+        /// Called with an important (non-verbose) message whenever a bend-count attempt
+        /// is exhausted with no solution. Set by the caller to forward the message
+        /// to its own logging sink with any relevant context (e.g. pipe number).
+        /// </summary>
+        public Action<string>? ImportantLog { get; set; }
+
+        /// <summary>
         /// How often ISolverCondition.Penalty is evaluated during Adam refinement.
         /// A value of 5 means condition cost is recalculated every 5 iterations,
         /// reducing overhead by ~80% when expensive conditions are active.
@@ -180,7 +187,11 @@ namespace GeometrySolver.Solver
                 if (Verbose) Console.WriteLine($"\n=== Trying {nBends}-bend solutions ===");
 
                 var segs = TrySolveBends(nBends, ct);
-                if (segs != null)
+                if (segs == null)
+                {
+                    ImportantLog?.Invoke($"Finished testing {nBends}-bend conditions — No fits.");
+                    continue;
+                }
                 {
                     var   sim       = PathSimulator.Simulate(_startPoint, _startDir, segs);
                     int   bendCount = segs.FindAll(s => s.Angle > 1e-4f).Count;

@@ -95,6 +95,7 @@ namespace ManifoldSolver.Core
                 LengthToleranceFraction = vm.TargetLength > 0 ? (float)(vm.LengthTolerance / vm.TargetLength) : 0f,
                 MaxBacktrackCandidates = vm.MaxBacktrack,
                 MaxBendAngleDeg = (float)vm.MaxAngle,
+                MaxPipeBacktrack = vm.MaxPipeBacktrack,
             };
 
             //mainWindow.DataControl.
@@ -317,6 +318,7 @@ namespace ManifoldSolver.Core
                 manifold.LengthToleranceFraction  = _vm.TargetLength > 0 ? (float)(_vm.LengthTolerance / _vm.TargetLength) : 0f;
                 manifold.MaxBacktrackCandidates   = _vm.MaxBacktrack;
                 manifold.MaxBendAngleDeg          = (float)_vm.MaxAngle;
+                manifold.MaxPipeBacktrack         = _vm.MaxPipeBacktrack;
 
                 // Lock SW user control so they can't edit while we run
                 _swApp.UserControl = false;

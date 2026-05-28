@@ -29,6 +29,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Target Length (mm)" VerticalAlignment="Center" Margin="0,3"/>
@@ -66,6 +67,10 @@
                 <TextBlock Grid.Row="8" Grid.Column="0" Text="Wall Thickness (mm)" VerticalAlignment="Center" Margin="0,3"/>
                 <TextBox   Grid.Row="8" Grid.Column="1" Style="{StaticResource NumericBox}" Margin="4,2"
                            Text="{Binding WallThickness, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+
+                <TextBlock Grid.Row="9" Grid.Column="0" Text="Max Pipe Backtrack" VerticalAlignment="Center" Margin="0,3"/>
+                <TextBox   Grid.Row="9" Grid.Column="1" Style="{StaticResource IntBox}" Margin="4,2"
+                           Text="{Binding MaxPipeBacktrack, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
 
             <TextBlock Text="Bend Radii" FontWeight="Bold" Margin="0,14,0,4"/>
